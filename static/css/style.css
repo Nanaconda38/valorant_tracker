@@ -1,0 +1,554 @@
+/* --- CSS Design System & Variables --- */
+:root {
+    /* Color Palette */
+    --bg-darkest: #07090d;
+    --bg-darker: #0c0f17;
+    --bg-card: rgba(22, 28, 42, 0.6);
+    --bg-card-hover: rgba(29, 37, 56, 0.85);
+    --border-color: rgba(255, 255, 255, 0.06);
+    
+    --valorant-red: #ff4655;
+    --valorant-red-glow: rgba(255, 70, 85, 0.2);
+    
+    --valorant-blue: #00f0ff;
+    --valorant-blue-glow: rgba(0, 240, 255, 0.2);
+    
+    --text-primary: #ffffff;
+    --text-secondary: #8b9bb4;
+    --text-muted: #536077;
+    
+    /* Font Families */
+    --font-headers: 'Outfit', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    
+    /* Layout Constants */
+    --border-radius: 12px;
+    --transition-speed: 0.25s;
+    --glow-effect: 0 0 15px;
+}
+
+/* --- Base & Reset --- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-darkest);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image: 
+        radial-gradient(circle at 10% 20%, rgba(255, 70, 85, 0.03) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(0, 240, 255, 0.03) 0%, transparent 40%);
+    background-attachment: fixed;
+}
+
+/* --- Layout Container --- */
+.app-container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* --- App Header --- */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+    background: rgba(12, 15, 23, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.logo-accent {
+    width: 6px;
+    height: 30px;
+    background-color: var(--valorant-red);
+    box-shadow: var(--glow-effect) var(--valorant-red);
+    display: block;
+    transform: skewX(-15deg);
+}
+
+h1#app-title {
+    font-family: var(--font-headers);
+    font-weight: 900;
+    font-size: 1.5rem;
+    letter-spacing: 0.15em;
+    color: var(--text-primary);
+}
+
+h1#app-title .sub-logo {
+    font-weight: 300;
+    color: var(--text-secondary);
+}
+
+.header-widgets {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+/* Status Widget */
+.status-widget {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-indicator.searching {
+    background-color: #f59e0b;
+    box-shadow: 0 0 10px #f59e0b;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+.status-indicator.connected {
+    background-color: #10b981;
+    box-shadow: 0 0 10px #10b981;
+}
+
+.status-indicator.disconnected {
+    background-color: #ef4444;
+    box-shadow: 0 0 10px #ef4444;
+}
+
+.status-text {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+/* RR Tracker Widget */
+.rr-tracker-widget {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.4rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.widget-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+
+.widget-values {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-headers);
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.rr-stat.win {
+    color: #10b981;
+}
+
+.rr-stat.loss {
+    color: #ef4444;
+}
+
+.rr-divider {
+    color: var(--text-muted);
+}
+
+.rr-badge-value {
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-left: 0.25rem;
+}
+
+.rr-badge-value.positive {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.rr-badge-value.negative {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* --- Main Dashboard --- */
+.dashboard-main {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+    .dashboard-main {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.team-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.team-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.team-title {
+    font-family: var(--font-headers);
+    font-weight: 900;
+    font-size: 1.4rem;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.team-average-stats {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+/* Team Specific Colors */
+.team-allies .team-title {
+    color: var(--valorant-blue);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+}
+
+.team-allies .title-prefix {
+    width: 4px;
+    height: 16px;
+    background-color: var(--valorant-blue);
+    display: inline-block;
+    box-shadow: 0 0 8px var(--valorant-blue);
+}
+
+.team-enemies .team-title {
+    color: var(--valorant-red);
+    text-shadow: 0 0 10px rgba(255, 70, 85, 0.15);
+}
+
+.team-enemies .title-prefix {
+    width: 4px;
+    height: 16px;
+    background-color: var(--valorant-red);
+    display: inline-block;
+    box-shadow: 0 0 8px var(--valorant-red);
+}
+
+/* Player List & Cards */
+.player-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.player-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr 1.6fr 0.8fr;
+    align-items: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.player-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background-color: transparent;
+    transition: background-color var(--transition-speed);
+}
+
+.team-allies .player-card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(0, 240, 255, 0.25);
+    box-shadow: 0 4px 20px rgba(0, 240, 255, 0.05);
+    transform: translateX(4px);
+}
+
+.team-allies .player-card:hover::before {
+    background-color: var(--valorant-blue);
+    box-shadow: 0 0 8px var(--valorant-blue);
+}
+
+.team-enemies .player-card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(255, 70, 85, 0.25);
+    box-shadow: 0 4px 20px rgba(255, 70, 85, 0.05);
+    transform: translateX(-4px);
+}
+
+.team-enemies .player-card:hover::before {
+    background-color: var(--valorant-red);
+    box-shadow: 0 0 8px var(--valorant-red);
+}
+
+/* Highlight Self */
+.player-card.self-card {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.team-allies .player-card.self-card::before {
+    background-color: var(--valorant-blue);
+    box-shadow: 0 0 8px var(--valorant-blue);
+    width: 4px;
+}
+
+/* Card Components */
+.player-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.agent-avatar {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.player-names {
+    display: flex;
+    flex-direction: column;
+}
+
+.player-tag {
+    font-family: var(--font-headers);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.player-name-id {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.player-rank {
+    display: flex;
+    flex-direction: column;
+}
+
+.rank-name {
+    font-family: var(--font-headers);
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.peak-rank {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.player-stats {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.stat-box {
+    display: flex;
+    flex-direction: column;
+    min-width: 40px;
+}
+
+.stat-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+}
+
+.stat-value {
+    font-family: var(--font-headers);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.player-badges {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: inline-block;
+}
+
+/* Badge Styles */
+.badge.on-fire {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.badge.tilt-alert {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.badge.smurf-alert {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+    border: 1px solid rgba(168, 85, 247, 0.25);
+    box-shadow: 0 0 5px rgba(168, 85, 247, 0.1);
+}
+
+.badge.premade-group-1 {
+    background: rgba(0, 240, 255, 0.1);
+    color: var(--valorant-blue);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+}
+
+.badge.premade-group-2 {
+    background: rgba(255, 70, 85, 0.1);
+    color: var(--valorant-red);
+    border: 1px solid rgba(255, 70, 85, 0.2);
+}
+
+.badge.premade-group-3 {
+    background: rgba(168, 85, 247, 0.1);
+    color: #a855f7;
+    border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.badge.premade-group-4 {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.badge.premade-group-5 {
+    background: rgba(0, 234, 154, 0.1);
+    color: #00ea9a;
+    border: 1px solid rgba(0, 234, 154, 0.2);
+}
+
+/* --- Tracker Score Colors --- */
+.score-excellent {
+    color: #ffd700 !important; /* Gold */
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+    font-weight: 800;
+}
+
+.score-good {
+    color: #00ea9a !important; /* Neon Green */
+    text-shadow: 0 0 8px rgba(0, 234, 154, 0.3);
+}
+
+.score-average {
+    color: #f59e0b !important; /* Yellow/Orange */
+}
+
+.score-low {
+    color: #ff4655 !important; /* Red */
+}
+
+/* --- Empty / Waiting States --- */
+.empty-state-card {
+    background: var(--bg-card);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    padding: 3rem 1.5rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    min-height: 220px;
+    margin: 1rem 0;
+    transition: border-color var(--transition-speed);
+}
+
+.empty-state-card:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.empty-state-text {
+    font-family: var(--font-headers);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* --- Keyframe Animations --- */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.9);
+    }
+}
