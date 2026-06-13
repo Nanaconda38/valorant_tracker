@@ -138,3 +138,22 @@
   - `[x]` Valider le parsing RR sur payloads Riot
   - `[x]` Valider l'affichage du widget et de la carte post-match dans Chrome visible avec données simulées
   - `[/]` Confirmer après une vraie partie que `tracker.db` s'incrémente et que le RR correspond au client
+
+---
+
+## 🏆 Avancement de la Phase 6 : Détails du Match & Leaderboard Interactif
+
+- `[x]` **Persistance et Cache Local**
+  - `[x]` Initialiser la table `match_details_cache` dans `database.py`
+  - `[x]` Implémenter les fonctions `save_match_details_json` et `get_match_details_json` dans `database.py`
+  - `[x]` Mettre en cache le payload brut de match dans `fetch_post_match_summary` dans `app.py`
+
+- `[x]` **API Backend**
+  - `[x]` Créer l'endpoint `/api/match-leaderboard/{match_id}` dans `app.py`
+  - `[x]` Implémenter le parsing complet du match (les 10 joueurs, KDA, ACS, calcul des HS% individuels et tracker scores)
+
+- `[x]` **Interface Utilisateur (Frontend)**
+  - `[x]` Ajouter la structure HTML du modal dans `index.html`
+  - `[x]` Ajouter le style CSS du modal avec effet flou et mise en page double colonne dans `style.css`
+  - `[x]` Implémenter la logique JavaScript pour charger, trier et afficher les joueurs d'une partie passée dans `app.js`
+  - `[x]` Gérer la fermeture/ouverture et le cas d'erreur hors-ligne

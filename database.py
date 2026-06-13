@@ -188,6 +188,15 @@ class DatabaseManager:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_my_matches_date ON my_matches(date)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_my_matches_puuid_date ON my_matches(puuid, date)")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS match_details_cache (
+                    match_id TEXT PRIMARY KEY,
+                    raw_json TEXT NOT NULL,
+                    saved_at TEXT NOT NULL
+                )
+                """
+            )
             conn.commit()
         finally:
             conn.close()
@@ -384,3 +393,41 @@ class DatabaseManager:
             "avg_hs_percent": round(row["avg_hs_percent"] or 0, 1),
             "recent_matches": [dict(match) for match in recent_rows]
         }
+
+    def save_match_details_json(self, match_id: str, raw_json: str) -> None:
+        """
+        Caches raw match details JSON.
+        """
+        import datetime
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO match_details_cache (match_id, raw_json, saved_at)
+                VALUES (?, ?, ?)
+                """,
+                (match_id, raw_json, datetime.datetime.now(datetime.timezone.utc).isoformat())
+            )
+            conn.commit()
+        except Exception as e:
+            print("DB ERROR CACHE DETAILS:", str(e))
+        finally:
+            conn.close()
+
+    def get_match_details_json(self, match_id: str) -> str | None:
+        """
+        Retrieves cached raw match details JSON.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT raw_json FROM match_details_cache WHERE match_id = ? LIMIT 1",
+                (match_id,)
+            ).fetchone()
+            return row["raw_json"] if row else None
+        except Exception as e:
+            print("DB ERROR GET CACHED DETAILS:", str(e))
+            return None
+        finally:
+            conn.close()
+

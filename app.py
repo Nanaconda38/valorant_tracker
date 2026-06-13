@@ -46,6 +46,7 @@ tracker_state = {
 persisted_match_ids = set()
 
 stats_cache = {}
+player_name_cache = {}
 stats_cache_context = {
     "game_phase": tracker_state["game_phase"],
     "queue_id": tracker_state["queue_id"],
@@ -409,6 +410,10 @@ async def fetch_post_match_summary(client: httpx.AsyncClient, pd_url: str, match
     if match_resp.status_code != 200:
         print(f"DEBUG POST MATCH: {match_resp.status_code} for {match_id}", flush=True)
         return None
+    try:
+        db_manager.save_match_details_json(match_id, match_resp.text)
+    except Exception as cache_err:
+        print(f"FAILED TO CACHE RAW MATCH DETAILS: {cache_err}", flush=True)
     return build_post_match_summary(match_resp.json(), puuid)
 
 
@@ -616,6 +621,282 @@ async def get_riot_remote_context(client: httpx.AsyncClient, local_url: str, loc
         "pd_url": f"https://pd.{shard}.a.pvp.net",
         "glz_url": f"https://glz-{glz_region}-1.{shard}.a.pvp.net",
         "shard": shard
+    }
+
+
+def format_riot_player_name(game_name: str | None, tag_line: str | None) -> str:
+    """
+    Formats Riot player name fields into a display name.
+
+    @param game_name: Riot GameName field.
+    @param tag_line: Riot TagLine field.
+    @return: Display name, or empty string when unavailable.
+    """
+    clean_name = (game_name or "").strip()
+    clean_tag = (tag_line or "").strip()
+    if clean_name and clean_tag:
+        return f"{clean_name}#{clean_tag}"
+    return clean_name
+
+
+def match_player_display_name(player: dict) -> str:
+    """
+    Extracts a display name from a match-details player payload.
+
+    @param player: Player payload from PD match-details.
+    @return: Display name, or empty string when unavailable.
+    """
+    return format_riot_player_name(
+        player.get("gameName") or player.get("GameName"),
+        player.get("tagLine") or player.get("TagLine")
+    )
+
+
+async def fetch_name_service_map(
+    client: httpx.AsyncClient,
+    pd_url: str,
+    remote_headers: dict,
+    puuids: list[str]
+) -> dict:
+    """
+    Resolves PUUIDs to Riot display names through PD name-service.
+
+    @param client: HTTP client.
+    @param pd_url: Riot PD base URL.
+    @param remote_headers: Riot auth headers.
+    @param puuids: Player PUUIDs to resolve.
+    @return: Mapping of PUUID to display name.
+    """
+    unique_puuids = list(dict.fromkeys([p for p in puuids if p]))
+    if not unique_puuids:
+        return {}
+
+    cached_names = {p: player_name_cache[p] for p in unique_puuids if p in player_name_cache}
+    unresolved_puuids = [p for p in unique_puuids if p not in cached_names]
+    if not unresolved_puuids:
+        return cached_names
+
+    names_resp = await client.put(
+        f"{pd_url}/name-service/v2/players",
+        headers=remote_headers,
+        json=unresolved_puuids
+    )
+    if names_resp.status_code != 200:
+        print(f"DEBUG NAME SERVICE: status={names_resp.status_code}", flush=True)
+        return cached_names
+
+    names_map = {}
+    for name_item in names_resp.json():
+        p_id = name_item.get("Subject") or name_item.get("subject")
+        display_name = format_riot_player_name(
+            name_item.get("GameName") or name_item.get("gameName"),
+            name_item.get("TagLine") or name_item.get("tagLine")
+        )
+        if p_id and display_name:
+            names_map[p_id] = display_name
+    player_name_cache.update(names_map)
+    return {**cached_names, **names_map}
+
+
+async def resolve_current_riot_player_names(puuids: list[str]) -> dict:
+    """
+    Resolves player names with the currently running local Riot client.
+
+    @param puuids: Player PUUIDs to resolve.
+    @return: Mapping of PUUID to display name.
+    """
+    if not puuids:
+        return {}
+
+    try:
+        from lockfile_scanner import LockfileScanner
+        scanner = LockfileScanner()
+        lockfile_info = scanner.scan()
+        if not lockfile_info:
+            return {}
+
+        local_url = f"{lockfile_info['protocol']}://127.0.0.1:{lockfile_info['port']}"
+        local_headers = lockfile_info["headers"]
+        async with httpx.AsyncClient(verify=False, timeout=8.0) as client:
+            context = await get_riot_remote_context(client, local_url, local_headers)
+            if not context:
+                return {}
+            return await fetch_name_service_map(
+                client,
+                context["pd_url"],
+                context["remote_headers"],
+                puuids
+            )
+    except Exception as e:
+        print(f"DEBUG NAME SERVICE EXCEPTION: {str(e)}", flush=True)
+        return {}
+
+
+def format_duration_from_millis(duration_ms) -> str:
+    """
+    Formats a millisecond duration as Xm Ys.
+    """
+    total_seconds = int(_number_or_zero(duration_ms) / 1000)
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+
+
+def build_round_player_metrics(round_results: list, player_puuids: list[str]) -> dict:
+    """
+    Builds per-player metrics derived from round results.
+    """
+    metrics = {
+        puuid: {
+            "damage_dealt": 0,
+            "damage_received": 0,
+            "first_kills": 0,
+            "first_deaths": 0,
+            "multi_kills": 0,
+            "kast_rounds": 0,
+            "loadout_total": 0,
+            "bank_total": 0,
+            "spent_total": 0
+        }
+        for puuid in player_puuids
+    }
+
+    for round_result in round_results:
+        deaths = set()
+        assists_by_player = {puuid: 0 for puuid in player_puuids}
+        kills_by_player = {puuid: 0 for puuid in player_puuids}
+        first_kill = None
+        player_stats_list = round_result.get("playerStats") or round_result.get("PlayerStats") or []
+
+        for player_stats in player_stats_list:
+            p_id = player_stats.get("subject") or player_stats.get("Subject")
+            if not p_id:
+                continue
+
+            economy = player_stats.get("economy") or player_stats.get("Economy") or {}
+            if p_id in metrics:
+                metrics[p_id]["loadout_total"] += int(_number_or_zero(economy.get("loadoutValue")))
+                metrics[p_id]["bank_total"] += int(_number_or_zero(economy.get("remaining")))
+                metrics[p_id]["spent_total"] += int(_number_or_zero(economy.get("spent")))
+
+            for damage in player_stats.get("damage", []) or player_stats.get("Damage", []) or []:
+                damage_amount = int(_number_or_zero(damage.get("damage") or damage.get("Damage")))
+                receiver = damage.get("receiver") or damage.get("Receiver")
+                if p_id in metrics:
+                    metrics[p_id]["damage_dealt"] += damage_amount
+                if receiver in metrics:
+                    metrics[receiver]["damage_received"] += damage_amount
+
+            for kill in player_stats.get("kills", []) or player_stats.get("Kills", []) or []:
+                killer = kill.get("killer") or kill.get("Killer") or p_id
+                victim = kill.get("victim") or kill.get("Victim")
+                round_time = int(_number_or_zero(kill.get("roundTime") or kill.get("RoundTime")))
+                if killer in kills_by_player:
+                    kills_by_player[killer] += 1
+                if victim:
+                    deaths.add(victim)
+                for assistant in kill.get("assistants", []) or kill.get("Assistants", []) or []:
+                    if assistant in assists_by_player:
+                        assists_by_player[assistant] += 1
+                if not first_kill or round_time < first_kill["round_time"]:
+                    first_kill = {"killer": killer, "victim": victim, "round_time": round_time}
+
+        if first_kill:
+            if first_kill["killer"] in metrics:
+                metrics[first_kill["killer"]]["first_kills"] += 1
+            if first_kill["victim"] in metrics:
+                metrics[first_kill["victim"]]["first_deaths"] += 1
+
+        for puuid in player_puuids:
+            kill_count = kills_by_player.get(puuid, 0)
+            if kill_count >= 2 and puuid in metrics:
+                metrics[puuid]["multi_kills"] += 1
+            if puuid in metrics and (kill_count > 0 or assists_by_player.get(puuid, 0) > 0 or puuid not in deaths):
+                metrics[puuid]["kast_rounds"] += 1
+
+    return metrics
+
+
+def build_match_tabs_data(round_results: list, players: list, player_lookup: dict, ally_team_id: str) -> dict:
+    """
+    Builds round, economy and duel payloads for the match details tabs.
+    """
+    rounds = []
+    duels = {}
+    ally_ids = [p["puuid"] for p in players if p.get("team_id") == ally_team_id]
+    enemy_ids = [p["puuid"] for p in players if p.get("team_id") != ally_team_id]
+
+    for ally_id in ally_ids:
+        duels[ally_id] = {
+            enemy_id: {"kills": 0, "deaths": 0}
+            for enemy_id in enemy_ids
+        }
+
+    for round_result in round_results:
+        round_num = int(_number_or_zero(round_result.get("roundNum") or round_result.get("RoundNum"))) + 1
+        winning_team = round_result.get("winningTeam") or round_result.get("WinningTeam") or ""
+        result_code = round_result.get("roundResultCode") or round_result.get("roundResult") or "Round"
+        player_stats_list = round_result.get("playerStats") or round_result.get("PlayerStats") or []
+        player_economies = round_result.get("playerEconomies") or round_result.get("PlayerEconomies") or []
+        kills = []
+        deaths = set()
+        first_kill = None
+
+        for player_stats in player_stats_list:
+            p_id = player_stats.get("subject") or player_stats.get("Subject")
+            for kill in player_stats.get("kills", []) or player_stats.get("Kills", []) or []:
+                killer = kill.get("killer") or kill.get("Killer") or p_id
+                victim = kill.get("victim") or kill.get("Victim")
+                round_time = int(_number_or_zero(kill.get("roundTime") or kill.get("RoundTime")))
+                if victim:
+                    deaths.add(victim)
+                kills.append({
+                    "killer": killer,
+                    "victim": victim,
+                    "round_time": round_time
+                })
+                if killer in ally_ids and victim in enemy_ids:
+                    duels[killer][victim]["kills"] += 1
+                elif killer in enemy_ids and victim in ally_ids:
+                    duels[victim][killer]["deaths"] += 1
+                if not first_kill or round_time < first_kill["round_time"]:
+                    first_kill = {"killer": killer, "victim": victim, "round_time": round_time}
+
+        ally_loadout = 0
+        enemy_loadout = 0
+        ally_bank = 0
+        enemy_bank = 0
+        for economy in player_economies:
+            p_id = economy.get("subject") or economy.get("Subject")
+            loadout = int(_number_or_zero(economy.get("loadoutValue")))
+            bank = int(_number_or_zero(economy.get("remaining")))
+            if p_id in ally_ids:
+                ally_loadout += loadout
+                ally_bank += bank
+            elif p_id in enemy_ids:
+                enemy_loadout += loadout
+                enemy_bank += bank
+
+        rounds.append({
+            "round": round_num,
+            "winning_team": winning_team,
+            "ally_won": winning_team == ally_team_id,
+            "result": result_code,
+            "ally_kills": sum(1 for p_id in deaths if p_id in enemy_ids),
+            "enemy_kills": sum(1 for p_id in deaths if p_id in ally_ids),
+            "ally_loadout": ally_loadout,
+            "enemy_loadout": enemy_loadout,
+            "ally_bank": ally_bank,
+            "enemy_bank": enemy_bank,
+            "first_kill": first_kill,
+            "events": kills[:8]
+        })
+
+    return {
+        "rounds": rounds,
+        "duels": duels,
+        "ally_ids": ally_ids,
+        "enemy_ids": enemy_ids
     }
 
 
@@ -1134,6 +1415,240 @@ async def get_career() -> dict:
         current_rank or "Unranked"
     ) if career["matches"] else 0
     return career
+
+
+@app.get("/api/match-leaderboard/{match_id}")
+async def get_match_leaderboard(match_id: str) -> dict:
+    """
+    Retrieves the complete leaderboard stats for all players in a past match.
+    Uses cached raw match JSON or fetches it live from Riot API if client is running.
+    """
+    # 1. Check local cache
+    raw_json = db_manager.get_match_details_json(match_id)
+    
+    # 2. Fetch live if not cached
+    if not raw_json:
+        from lockfile_scanner import LockfileScanner
+        scanner = LockfileScanner()
+        lockfile_info = scanner.scan()
+        if not lockfile_info:
+            return {
+                "status": "error",
+                "message": "Match non mis en cache. Veuillez ouvrir VALORANT pour récupérer les détails."
+            }
+            
+        local_url = f"{lockfile_info['protocol']}://127.0.0.1:{lockfile_info['port']}"
+        local_headers = lockfile_info["headers"]
+        
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=12.0) as client:
+                context = await get_riot_remote_context(client, local_url, local_headers)
+                if not context:
+                    return {
+                        "status": "error",
+                        "message": "Impossible de s'authentifier avec le client Riot local."
+                    }
+                
+                pd_url = context["pd_url"]
+                remote_headers = context["remote_headers"]
+                
+                match_resp = await client.get(f"{pd_url}/match-details/v1/matches/{match_id}", headers=remote_headers)
+                if match_resp.status_code != 200:
+                    return {
+                        "status": "error",
+                        "message": f"Le serveur Riot a renvoyé une erreur {match_resp.status_code}"
+                    }
+                    
+                raw_json = match_resp.text
+                db_manager.save_match_details_json(match_id, raw_json)
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Erreur lors de la récupération : {str(e)}"
+            }
+            
+    # 3. Parse raw JSON
+    try:
+        match_data = json.loads(raw_json)
+        match_info = match_data.get("matchInfo") or match_data.get("MatchInfo") or {}
+        map_id = match_info.get("mapId") or match_info.get("mapID") or ""
+        queue_id = match_info.get("queueID") or match_info.get("queueId") or ""
+        teams = match_data.get("teams") or match_data.get("Teams") or []
+        players = match_data.get("players") or match_data.get("Players") or []
+        round_results = match_data.get("roundResults") or match_data.get("RoundResults") or []
+        stored_player_names = {}
+        
+        # Determine anchor PUUID (local player perspective)
+        anchor_puuid = tracker_state.get("puuid", "")
+        conn = db_manager._connect()
+        try:
+            row = conn.execute(
+                "SELECT puuid, player_name FROM my_matches WHERE match_id = ? LIMIT 1",
+                (match_id,)
+            ).fetchone()
+            if row:
+                if row["puuid"]:
+                    stored_player_names[row["puuid"]] = row["player_name"]
+                    anchor_puuid = row["puuid"]
+        except Exception:
+            pass
+        finally:
+            conn.close()
+                
+        if not anchor_puuid and players:
+            anchor_puuid = players[0].get("subject") or players[0].get("Subject") or ""
+            
+        local_player = next((p for p in players if (p.get("subject") or p.get("Subject")) == anchor_puuid), None)
+        ally_team_id = None
+        if local_player:
+            ally_team_id = local_player.get("teamId") or local_player.get("TeamID") or local_player.get("teamID")
+        if not ally_team_id and players:
+            ally_team_id = players[0].get("teamId") or players[0].get("TeamID") or players[0].get("teamID")
+            
+        # Determine team scores & result
+        ally_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) == ally_team_id), {})
+        enemy_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) != ally_team_id), {})
+        
+        rounds_won = int(_number_or_zero(ally_team.get("roundsWon") or ally_team.get("RoundsWon") or ally_team.get("numPoints")))
+        enemy_rounds = int(_number_or_zero(enemy_team.get("roundsWon") or enemy_team.get("RoundsWon") or enemy_team.get("numPoints")))
+        won = bool(ally_team.get("won") if "won" in ally_team else ally_team.get("Won", rounds_won > enemy_rounds))
+        
+        result_text = "VICTORY" if won else "DEFEAT"
+        scoreline = f"{rounds_won}-{enemy_rounds}" if rounds_won or enemy_rounds else "--"
+        match_duration = format_duration_from_millis(match_info.get("gameLengthMillis") or match_info.get("GameLengthMillis"))
+        
+        # Calculate shots per player for HS%
+        shots_by_player = {}
+        for round_result in round_results:
+            player_stats_list = round_result.get("playerStats") or round_result.get("PlayerStats") or []
+            for player_stats in player_stats_list:
+                p_id = player_stats.get("subject") or player_stats.get("Subject")
+                if not p_id:
+                    continue
+                if p_id not in shots_by_player:
+                    shots_by_player[p_id] = {"headshots": 0, "bodyshots": 0, "legshots": 0}
+                
+                damage_list = player_stats.get("damage") or player_stats.get("Damage") or []
+                for damage in damage_list:
+                    shots_by_player[p_id]["headshots"] += int(_number_or_zero(damage.get("headshots")))
+                    shots_by_player[p_id]["bodyshots"] += int(_number_or_zero(damage.get("bodyshots")))
+                    shots_by_player[p_id]["legshots"] += int(_number_or_zero(damage.get("legshots")))
+                    
+        allies_list = []
+        enemies_list = []
+        player_puuids = [p.get("subject") or p.get("Subject") or "" for p in players]
+        round_metric_map = build_round_player_metrics(round_results, player_puuids)
+        needs_name_service = any(not match_player_display_name(p) for p in players)
+        name_service_map = await resolve_current_riot_player_names(player_puuids) if needs_name_service else {}
+        
+        for p in players:
+            p_puuid = p.get("subject") or p.get("Subject") or ""
+            p_team_id = p.get("teamId") or p.get("TeamID") or p.get("teamID")
+            
+            p_stats = p.get("stats") or p.get("Stats") or {}
+            kills = int(_number_or_zero(p_stats.get("kills") or p_stats.get("Kills")))
+            deaths = int(_number_or_zero(p_stats.get("deaths") or p_stats.get("Deaths")))
+            assists = int(_number_or_zero(p_stats.get("assists") or p_stats.get("Assists")))
+            score = int(_number_or_zero(p_stats.get("score") or p_stats.get("Score")))
+            
+            rounds_played = int(_number_or_zero(p_stats.get("roundsPlayed") or p_stats.get("RoundsPlayed") or rounds_won + enemy_rounds))
+            acs = round(score / max(rounds_played, 1))
+            
+            p_shots = shots_by_player.get(p_puuid, {"headshots": 0, "bodyshots": 0, "legshots": 0})
+            total_shots = p_shots["headshots"] + p_shots["bodyshots"] + p_shots["legshots"]
+            hs_percent = round((p_shots["headshots"] / max(total_shots, 1)) * 100, 1) if total_shots > 0 else 0.0
+            p_metrics = round_metric_map.get(p_puuid, {})
+            damage_dealt = int(p_metrics.get("damage_dealt", 0))
+            damage_received = int(p_metrics.get("damage_received", 0))
+            adr = round(damage_dealt / max(rounds_played, 1), 1)
+            dda = round((damage_dealt - damage_received) / max(rounds_played, 1), 1)
+            kast = round((int(p_metrics.get("kast_rounds", 0)) / max(rounds_played, 1)) * 100, 1)
+            
+            tier = p.get("competitiveTier") or p.get("CompetitiveTier") or 0
+            rank = rank_name_from_tier(tier) or "Unranked"
+            
+            agent_id = p.get("characterId") or p.get("CharacterID") or ""
+            agent_name = AGENT_MAPPING.get(agent_id, "Unknown Agent")
+            
+            full_name = (
+                match_player_display_name(p)
+                or name_service_map.get(p_puuid)
+                or stored_player_names.get(p_puuid)
+                or "Unknown Player"
+            )
+            
+            tracker_score = calculate_tracker_score(
+                kills / max(deaths, 1),
+                hs_percent,
+                acs,
+                rank,
+                rank
+            )
+            
+            player_info = {
+                "puuid": p_puuid,
+                "name": full_name,
+                "agent_id": agent_id,
+                "agent": agent_name,
+                "team_id": p_team_id,
+                "rank": rank,
+                "peak_rank": rank,
+                "kd": round(kills / max(deaths, 1), 2),
+                "hs_percent": hs_percent,
+                "acs": acs,
+                "adr": adr,
+                "dda": dda,
+                "kast": kast,
+                "fk": int(p_metrics.get("first_kills", 0)),
+                "fd": int(p_metrics.get("first_deaths", 0)),
+                "mk": int(p_metrics.get("multi_kills", 0)),
+                "damage_dealt": damage_dealt,
+                "damage_received": damage_received,
+                "avg_loadout": round(int(p_metrics.get("loadout_total", 0)) / max(rounds_played, 1)),
+                "avg_bank": round(int(p_metrics.get("bank_total", 0)) / max(rounds_played, 1)),
+                "kills": kills,
+                "deaths": deaths,
+                "assists": assists,
+                "score": tracker_score,
+                "is_self": p_puuid == anchor_puuid
+            }
+            
+            enrich_player_assets(player_info)
+            
+            if p_team_id == ally_team_id:
+                allies_list.append(player_info)
+            else:
+                enemies_list.append(player_info)
+                
+        allies_list.sort(key=lambda x: x.get("acs", 0), reverse=True)
+        enemies_list.sort(key=lambda x: x.get("acs", 0), reverse=True)
+        player_lookup = {player["puuid"]: player for player in allies_list + enemies_list}
+        tabs_data = build_match_tabs_data(round_results, allies_list + enemies_list, player_lookup, ally_team_id)
+        
+        map_assets = asset_manager.map(map_id)
+        map_name = map_assets.get("name", "")
+        map_banner_url = map_assets.get("banner", "")
+        
+        return {
+            "status": "ok",
+            "match_id": match_id,
+            "map_id": map_id,
+            "map_name": map_name,
+            "map_banner_url": map_banner_url,
+            "queue_id": queue_id,
+            "duration": match_duration,
+            "scoreline": scoreline,
+            "result": result_text,
+            "allies": allies_list,
+            "enemies": enemies_list,
+            "rounds": tabs_data["rounds"],
+            "duels": tabs_data["duels"]
+        }
+    except Exception as parse_err:
+        return {
+            "status": "error",
+            "message": f"Erreur lors de l'analyse des détails : {str(parse_err)}"
+        }
 
 
 @app.post("/api/backfill/competitive")

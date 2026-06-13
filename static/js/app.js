@@ -4,6 +4,9 @@ let initialEnemiesHtml = "";
 let initialAlliesAvgHtml = "";
 let initialEnemiesAvgHtml = "";
 let lastCareerData = null;
+let currentMatchDetailsData = null;
+let currentMatchDetailsTab = 'scoreboard';
+let currentPerformancePuuid = '';
 
 const RANKS = [
     "Unranked",
@@ -614,7 +617,7 @@ function renderCareerMatch(match) {
     ` : '';
 
     return `
-        <div class="career-match-card">
+        <div class="career-match-card" data-match-id="${escapeHtml(match.match_id)}">
             <div class="career-map-banner"${bannerStyle}></div>
             <div class="career-match-body">
                 <div class="career-match-main">
@@ -635,6 +638,522 @@ function renderCareerMatch(match) {
             </div>
         </div>
     `;
+}
+
+/**
+ * Opens the Match details modal and renders the player leaderboard.
+ * 
+ * @param {string} matchId The ID of the match to display.
+ */
+async function openMatchDetailsModal(matchId) {
+    const modal = document.getElementById('match-modal');
+    if (!modal) return;
+    
+    // Show modal
+    modal.classList.remove('hidden');
+    
+    // Render loading state in lists
+    const alliesList = document.getElementById('modal-allies-list');
+    const enemiesList = document.getElementById('modal-enemies-list');
+    
+    if (alliesList) alliesList.innerHTML = '<div class="empty-state-card"><span class="empty-state-text">Chargement des détails...</span></div>';
+    if (enemiesList) enemiesList.innerHTML = '<div class="empty-state-card"><span class="empty-state-text">Chargement des détails...</span></div>';
+    
+    // Reset metadata
+    const resultEl = document.getElementById('modal-match-result');
+    if (resultEl) {
+        resultEl.textContent = 'CHARGEMENT...';
+        resultEl.className = 'modal-match-result';
+    }
+    
+    const banner = document.getElementById('modal-header-banner');
+    if (banner) banner.style.backgroundImage = '';
+    
+    const mapEl = document.getElementById('modal-match-map');
+    const modeEl = document.getElementById('modal-match-mode');
+    const scorelineEl = document.getElementById('modal-match-scoreline');
+    
+    if (mapEl) mapEl.textContent = '--';
+    if (modeEl) modeEl.textContent = '--';
+    if (scorelineEl) scorelineEl.textContent = '--';
+    
+    try {
+        const response = await fetch(`/api/match-leaderboard/${matchId}`);
+        const data = await response.json();
+        
+        if (!response.ok || data.status !== 'ok') {
+            const errorMsg = data.message || 'Une erreur est survenue lors de la récupération des détails.';
+            if (alliesList) alliesList.innerHTML = `<div class="empty-state-card"><span class="empty-state-text" style="color: var(--valorant-red);">${escapeHtml(errorMsg)}</span></div>`;
+            if (enemiesList) enemiesList.innerHTML = '';
+            if (resultEl) {
+                resultEl.textContent = 'ERREUR';
+                resultEl.className = 'modal-match-result defeat';
+            }
+            return;
+        }
+        
+        // Render header details
+        if (banner && data.map_banner_url) {
+            banner.style.backgroundImage = `url('${escapeHtml(data.map_banner_url)}')`;
+        }
+        
+        if (resultEl) {
+            resultEl.textContent = data.result;
+            resultEl.className = `modal-match-result ${data.result.toLowerCase()}`;
+        }
+        
+        if (mapEl) mapEl.textContent = formatMapLabel(data.map_id);
+        if (modeEl) modeEl.textContent = formatGameMode(data.queue_id) || 'CUSTOM';
+        if (scorelineEl) scorelineEl.textContent = data.scoreline;
+        
+        // Render allies & enemies lists
+        if (alliesList) {
+            alliesList.innerHTML = data.allies.map(p => renderLeaderboardPlayerCard(p)).join('');
+        }
+        if (enemiesList) {
+            enemiesList.innerHTML = data.enemies.map(p => renderLeaderboardPlayerCard(p)).join('');
+        }
+    } catch (error) {
+        if (alliesList) alliesList.innerHTML = `<div class="empty-state-card"><span class="empty-state-text" style="color: var(--valorant-red);">Erreur réseau</span></div>`;
+        if (enemiesList) enemiesList.innerHTML = '';
+        if (resultEl) {
+            resultEl.textContent = 'ERREUR';
+            resultEl.className = 'modal-match-result defeat';
+        }
+    }
+}
+
+/**
+ * Generates HTML for a player card in the leaderboard modal.
+ * 
+ * @param {Object} player The player data.
+ * @return {string} HTML markup.
+ */
+function renderLeaderboardPlayerCard(player) {
+    const scoreClass = getScoreClass(player.score);
+    const selfClass = player.is_self ? ' self-card' : '';
+    const agentInitial = player.agent ? player.agent.charAt(0) : 'U';
+    
+    const agentAvatarHtml = player.agent_icon_url
+        ? renderImage(player.agent_icon_url, player.agent || 'Agent')
+        : `<span class="placeholder-avatar">${agentInitial}</span>`;
+    const rankIconHtml = renderImage(player.rank_icon_url, player.rank || 'Rank', 'rank-icon');
+    
+    return `
+        <div class="player-card${selfClass}">
+            <div class="player-identity">
+                <div class="agent-avatar">
+                    ${agentAvatarHtml}
+                </div>
+                <div class="player-names">
+                    <span class="player-tag">${escapeHtml(player.agent)}</span>
+                    <span class="player-name-id">${escapeHtml(player.name)}</span>
+                </div>
+            </div>
+            <div class="player-rank">
+                <div class="rank-name">${rankIconHtml}${escapeHtml(player.rank)}</div>
+            </div>
+            <div class="player-stats" style="grid-column: span 2; justify-content: flex-end;">
+                <div class="stat-box">
+                    <span class="stat-label">K/D/A</span>
+                    <span class="stat-value" style="font-size: 0.85rem;">${player.kills}/${player.deaths}/${player.assists}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">KD</span>
+                    <span class="stat-value">${Number(player.kd || 0).toFixed(2)}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">HS%</span>
+                    <span class="stat-value">${Number(player.hs_percent || 0).toFixed(1)}%</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">ACS</span>
+                    <span class="stat-value">${player.acs}</span>
+                </div>
+                <div class="stat-box tracker-score-box">
+                    <span class="stat-label">SCORE</span>
+                    <span class="stat-value ${scoreClass}">${player.score}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function getAllMatchPlayers() {
+    if (!currentMatchDetailsData) return [];
+    return [...(currentMatchDetailsData.allies || []), ...(currentMatchDetailsData.enemies || [])];
+}
+
+function signedValue(value) {
+    const numeric = Number(value || 0);
+    return `${numeric >= 0 ? '+' : ''}${numeric}`;
+}
+
+function signedClass(value) {
+    const numeric = Number(value || 0);
+    if (numeric > 0) return 'positive';
+    if (numeric < 0) return 'negative';
+    return '';
+}
+
+function setActiveMatchTab(tabName) {
+    currentMatchDetailsTab = tabName;
+    document.querySelectorAll('.modal-tab').forEach(button => {
+        button.classList.toggle('active', button.dataset.matchTab === tabName);
+    });
+}
+
+function renderMatchDetailsTab() {
+    const contentEl = document.getElementById('modal-tab-content');
+    if (!contentEl || !currentMatchDetailsData) return;
+
+    if (currentMatchDetailsTab === 'performance') {
+        contentEl.innerHTML = renderPerformanceTab();
+    } else if (currentMatchDetailsTab === 'economy') {
+        contentEl.innerHTML = renderEconomyTab();
+    } else if (currentMatchDetailsTab === 'rounds') {
+        contentEl.innerHTML = renderRoundsTab();
+    } else if (currentMatchDetailsTab === 'duels') {
+        contentEl.innerHTML = renderDuelsTab();
+    } else {
+        contentEl.innerHTML = renderScoreboardTab();
+    }
+}
+
+function renderMatchTeamStrip() {
+    const allies = currentMatchDetailsData?.allies || [];
+    const enemies = currentMatchDetailsData?.enemies || [];
+    const teamIcons = players => players.map(player => `
+        <button class="match-agent-chip ${player.is_self ? 'self' : ''}" type="button" data-performance-puuid="${escapeHtml(player.puuid)}" title="${escapeHtml(player.name)}">
+            ${player.agent_icon_url ? renderImage(player.agent_icon_url, player.agent || 'Agent') : `<span>${escapeHtml((player.agent || '?').charAt(0))}</span>`}
+        </button>
+    `).join('');
+
+    return `
+        <div class="match-team-strip">
+            <div class="team-strip-side allies"><span>Team A</span>${teamIcons(allies)}</div>
+            <div class="team-strip-vs">VS</div>
+            <div class="team-strip-side enemies">${teamIcons(enemies)}<span>Team B</span></div>
+        </div>
+    `;
+}
+
+function renderScoreboardTab() {
+    return `
+        ${renderRoundOutcomeStrip()}
+        <div class="match-table-wrap">
+            ${renderScoreboardTeam('Team A', currentMatchDetailsData.allies || [], 'allies')}
+            ${renderScoreboardTeam('Team B', currentMatchDetailsData.enemies || [], 'enemies')}
+        </div>
+    `;
+}
+
+function renderScoreboardTeam(label, players, side) {
+    const avgRank = players.find(player => player.rank && player.rank !== 'Unranked')?.rank || 'Unranked';
+    const rows = players.map(player => `
+        <tr class="${player.is_self ? 'self-row' : ''}">
+            <td class="score-player-cell">
+                <div class="score-player-avatar">${player.agent_icon_url ? renderImage(player.agent_icon_url, player.agent || 'Agent') : ''}</div>
+                <div>
+                    <div class="score-player-name">${escapeHtml(player.name)}</div>
+                    <div class="score-player-sub">${escapeHtml(player.agent)} / ${escapeHtml(player.rank)}</div>
+                </div>
+            </td>
+            <td>${player.rank_icon_url ? renderImage(player.rank_icon_url, player.rank || 'Rank', 'rank-icon') : ''}</td>
+            <td>${player.score || 0}</td>
+            <td class="highlight-cell">${player.acs || 0}</td>
+            <td>${player.kills || 0}</td>
+            <td>${player.deaths || 0}</td>
+            <td>${player.assists || 0}</td>
+            <td class="${signedClass((player.kills || 0) - (player.deaths || 0))}">${signedValue((player.kills || 0) - (player.deaths || 0))}</td>
+            <td class="${signedClass(player.dda)}">${signedValue(player.dda)}</td>
+            <td>${Number(player.adr || 0).toFixed(1)}</td>
+            <td>${Number(player.hs_percent || 0).toFixed(0)}%</td>
+            <td>${Number(player.kast || 0).toFixed(0)}%</td>
+            <td>${player.fk || 0}</td>
+            <td>${player.fd || 0}</td>
+            <td>${player.mk || 0}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <section class="scoreboard-team ${side}">
+            <div class="scoreboard-team-header">
+                <span>${label}</span>
+                <span>Avg. Rank: ${escapeHtml(avgRank)}</span>
+            </div>
+            <table class="match-score-table">
+                <thead>
+                    <tr>
+                        <th>Player</th><th>Rank</th><th>TRS</th><th>ACS</th><th>K</th><th>D</th><th>A</th><th>+/-</th><th>DDA</th><th>ADR</th><th>HS%</th><th>KAST</th><th>FK</th><th>FD</th><th>MK</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </section>
+    `;
+}
+
+function renderRoundOutcomeStrip() {
+    const rounds = currentMatchDetailsData?.rounds || [];
+    if (!rounds.length) return '';
+    return `
+        <div class="round-outcome-strip">
+            ${rounds.map(round => `
+                <div class="round-outcome ${round.ally_won ? 'ally' : 'enemy'}" title="${escapeHtml(round.result)}">
+                    <span>${round.round}</span>
+                    <strong>${round.ally_won ? 'A' : 'B'}</strong>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderPerformanceTab() {
+    const players = getAllMatchPlayers();
+    const selected = players.find(player => player.puuid === currentPerformancePuuid) || players[0];
+    if (!selected) return '<div class="empty-state-card"><span class="empty-state-text">No player data</span></div>';
+    const rounds = currentMatchDetailsData.rounds || [];
+    const killBars = rounds.map(round => {
+        const involved = round.events || [];
+        const kills = involved.filter(event => event.killer === selected.puuid).length;
+        const deaths = involved.filter(event => event.victim === selected.puuid).length;
+        return `<div class="performance-round ${kills ? 'has-kill' : ''} ${deaths ? 'has-death' : ''}"><span>${round.round}</span><strong>${kills || '-'}</strong></div>`;
+    }).join('');
+
+    return `
+        ${renderMatchTeamStrip()}
+        <section class="performance-hero">
+            <div class="performance-agent-art">${selected.agent_full_url ? renderImage(selected.agent_full_url, selected.agent || 'Agent') : ''}</div>
+            <div class="performance-main">
+                <div class="performance-name">${selected.rank_icon_url ? renderImage(selected.rank_icon_url, selected.rank || 'Rank', 'rank-icon') : ''}${escapeHtml(selected.name)}</div>
+                <div class="performance-agent">${escapeHtml(selected.agent)} / ${escapeHtml(selected.rank)}</div>
+                <div class="performance-stats">
+                    <span><small>K/D/A</small><strong>${selected.kills}/${selected.deaths}/${selected.assists}</strong></span>
+                    <span><small>K/D</small><strong>${Number(selected.kd || 0).toFixed(2)}</strong></span>
+                    <span><small>ADR</small><strong>${Number(selected.adr || 0).toFixed(1)}</strong></span>
+                    <span><small>ACS</small><strong>${selected.acs || 0}</strong></span>
+                    <span><small>HS%</small><strong>${Number(selected.hs_percent || 0).toFixed(1)}%</strong></span>
+                    <span><small>KAST</small><strong>${Number(selected.kast || 0).toFixed(0)}%</strong></span>
+                </div>
+            </div>
+        </section>
+        <div class="performance-rounds">${killBars}</div>
+        <div class="performance-splits">
+            <div class="split-panel"><h3>Damage</h3><p>Dealt <strong>${selected.damage_dealt || 0}</strong></p><p>Received <strong>${selected.damage_received || 0}</strong></p></div>
+            <div class="split-panel"><h3>Openers</h3><p>First Kills <strong>${selected.fk || 0}</strong></p><p>First Deaths <strong>${selected.fd || 0}</strong></p></div>
+            <div class="split-panel"><h3>Economy</h3><p>Avg. Loadout <strong>${selected.avg_loadout || 0}</strong></p><p>Avg. Bank <strong>${selected.avg_bank || 0}</strong></p></div>
+        </div>
+    `;
+}
+
+function renderEconomyTab() {
+    const rounds = currentMatchDetailsData?.rounds || [];
+    const maxValue = Math.max(1, ...rounds.flatMap(round => [round.ally_loadout || 0, round.enemy_loadout || 0]));
+    return `
+        <section class="economy-panel">
+            <div class="economy-header">
+                <h3>Economy</h3>
+                <span>Loadout value by round</span>
+            </div>
+            <div class="economy-chart">
+                ${rounds.map(round => `
+                    <div class="economy-round">
+                        <div class="economy-bars">
+                            <span class="ally-bar" style="height:${Math.max(4, ((round.ally_loadout || 0) / maxValue) * 100)}%"></span>
+                            <span class="enemy-bar" style="height:${Math.max(4, ((round.enemy_loadout || 0) / maxValue) * 100)}%"></span>
+                        </div>
+                        <small>${round.round}</small>
+                    </div>
+                `).join('')}
+            </div>
+            ${renderRoundOutcomeStrip()}
+        </section>
+        ${renderScoreboardTab()}
+    `;
+}
+
+function renderRoundsTab() {
+    const rounds = currentMatchDetailsData?.rounds || [];
+    return `
+        <div class="rounds-grid">
+            ${rounds.map(round => `
+                <section class="round-card ${round.ally_won ? 'ally' : 'enemy'}">
+                    <div class="round-card-head">
+                        <span>Round ${round.round}</span>
+                        <strong>${round.ally_won ? 'Team A Win' : 'Team B Win'}</strong>
+                    </div>
+                    <div class="round-card-stats">
+                        <span>A kills <strong>${round.ally_kills}</strong></span>
+                        <span>B kills <strong>${round.enemy_kills}</strong></span>
+                        <span>A loadout <strong>${round.ally_loadout}</strong></span>
+                        <span>B loadout <strong>${round.enemy_loadout}</strong></span>
+                    </div>
+                    <div class="round-events">
+                        ${(round.events || []).slice(0, 5).map(event => renderRoundEvent(event)).join('') || '<span class="muted">No kills recorded</span>'}
+                    </div>
+                </section>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderRoundEvent(event) {
+    const players = getAllMatchPlayers();
+    const killer = players.find(player => player.puuid === event.killer);
+    const victim = players.find(player => player.puuid === event.victim);
+    return `
+        <div class="round-event">
+            <span>${Math.round(Number(event.round_time || 0) / 1000)}s</span>
+            <strong>${escapeHtml(killer?.name || 'Unknown')}</strong>
+            <span>vs</span>
+            <strong>${escapeHtml(victim?.name || 'Unknown')}</strong>
+        </div>
+    `;
+}
+
+function renderDuelsTab() {
+    const allies = currentMatchDetailsData?.allies || [];
+    const enemies = currentMatchDetailsData?.enemies || [];
+    const duels = currentMatchDetailsData?.duels || {};
+    return `
+        <div class="duels-summary">
+            ${renderDuelHighlight('Top Rivalry', allies, enemies, duels, 'balanced')}
+            ${renderDuelHighlight('Mismatch A', allies, enemies, duels, 'ally')}
+            ${renderDuelHighlight('Mismatch B', allies, enemies, duels, 'enemy')}
+        </div>
+        <div class="duel-matrix-wrap">
+            <table class="duel-matrix">
+                <thead>
+                    <tr>
+                        <th>Team A vs Team B</th>
+                        ${enemies.map(enemy => `<th>${renderDuelPlayerHeader(enemy)}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${allies.map(ally => `
+                        <tr>
+                            <th>${renderDuelPlayerHeader(ally)}</th>
+                            ${enemies.map(enemy => {
+                                const cell = duels?.[ally.puuid]?.[enemy.puuid] || { kills: 0, deaths: 0 };
+                                return `<td><span class="duel-score ally">${cell.kills}</span><span class="duel-score enemy">${cell.deaths}</span></td>`;
+                            }).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderDuelPlayerHeader(player) {
+    return `
+        <div class="duel-player-head">
+            ${player.agent_icon_url ? renderImage(player.agent_icon_url, player.agent || 'Agent') : ''}
+            <span>${escapeHtml((player.name || '').split('#')[0] || 'Unknown')}</span>
+        </div>
+    `;
+}
+
+function renderDuelHighlight(title, allies, enemies, duels, mode) {
+    let best = null;
+    allies.forEach(ally => {
+        enemies.forEach(enemy => {
+            const cell = duels?.[ally.puuid]?.[enemy.puuid] || { kills: 0, deaths: 0 };
+            const diff = cell.kills - cell.deaths;
+            const total = cell.kills + cell.deaths;
+            let score = total;
+            if (mode === 'ally') score = diff;
+            if (mode === 'enemy') score = -diff;
+            if (!best || score > best.score) {
+                best = { ally, enemy, cell, score, total };
+            }
+        });
+    });
+    if (!best) return '';
+    return `
+        <section class="duel-highlight">
+            <div>${renderDuelPlayerHeader(best.ally)}</div>
+            <strong>${escapeHtml(title)}<span>VS</span></strong>
+            <div>${renderDuelPlayerHeader(best.enemy)}</div>
+            <p>${best.cell.kills} - ${best.cell.deaths}</p>
+        </section>
+    `;
+}
+
+async function openMatchDetailsModal(matchId) {
+    const modal = document.getElementById('match-modal');
+    if (!modal) return;
+
+    currentMatchDetailsData = null;
+    currentMatchDetailsTab = 'scoreboard';
+    currentPerformancePuuid = '';
+    modal.classList.remove('hidden');
+    setActiveMatchTab('scoreboard');
+
+    const contentEl = document.getElementById('modal-tab-content');
+    if (contentEl) {
+        contentEl.innerHTML = '<div class="empty-state-card"><span class="empty-state-text">Loading match details...</span></div>';
+    }
+
+    const resultEl = document.getElementById('modal-match-result');
+    const banner = document.getElementById('modal-header-banner');
+    const mapEl = document.getElementById('modal-match-map');
+    const modeEl = document.getElementById('modal-match-mode');
+    const durationEl = document.getElementById('modal-match-duration');
+    const scorelineEl = document.getElementById('modal-match-scoreline');
+
+    if (resultEl) {
+        resultEl.textContent = 'LOADING...';
+        resultEl.className = 'modal-match-result';
+    }
+    if (banner) banner.style.backgroundImage = '';
+    if (mapEl) mapEl.textContent = '--';
+    if (modeEl) modeEl.textContent = '--';
+    if (durationEl) durationEl.textContent = '--';
+    if (scorelineEl) scorelineEl.textContent = '--';
+
+    try {
+        const response = await fetch(`/api/match-leaderboard/${matchId}`);
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'ok') {
+            const errorMsg = data.message || 'Unable to load match details.';
+            if (contentEl) {
+                contentEl.innerHTML = `<div class="empty-state-card"><span class="empty-state-text" style="color: var(--valorant-red);">${escapeHtml(errorMsg)}</span></div>`;
+            }
+            if (resultEl) {
+                resultEl.textContent = 'ERROR';
+                resultEl.className = 'modal-match-result defeat';
+            }
+            return;
+        }
+
+        if (banner && data.map_banner_url) {
+            banner.style.backgroundImage = `url('${escapeHtml(data.map_banner_url)}')`;
+        }
+        if (resultEl) {
+            resultEl.textContent = data.result;
+            resultEl.className = `modal-match-result ${String(data.result || '').toLowerCase()}`;
+        }
+        if (mapEl) mapEl.textContent = data.map_name || formatMapLabel(data.map_id);
+        if (modeEl) modeEl.textContent = formatGameMode(data.queue_id) || 'CUSTOM';
+        if (durationEl) durationEl.textContent = data.duration || '--';
+        if (scorelineEl) scorelineEl.textContent = data.scoreline || '--';
+
+        currentMatchDetailsData = data;
+        const selfPlayer = getAllMatchPlayers().find(player => player.is_self);
+        currentPerformancePuuid = selfPlayer?.puuid || data.allies?.[0]?.puuid || data.enemies?.[0]?.puuid || '';
+        renderMatchDetailsTab();
+    } catch (error) {
+        if (contentEl) {
+            contentEl.innerHTML = '<div class="empty-state-card"><span class="empty-state-text" style="color: var(--valorant-red);">Network error</span></div>';
+        }
+        if (resultEl) {
+            resultEl.textContent = 'ERROR';
+            resultEl.className = 'modal-match-result defeat';
+        }
+    }
 }
 
 /**
@@ -820,6 +1339,58 @@ function init() {
     if (filterSelect) {
         filterSelect.addEventListener('change', applyCareerFilter);
     }
+    
+    // Career match card click listener
+    const careerHistory = document.getElementById('career-history');
+    if (careerHistory) {
+        careerHistory.addEventListener('click', (e) => {
+            const card = e.target.closest('.career-match-card');
+            if (card) {
+                const matchId = card.dataset.matchId;
+                if (matchId) {
+                    openMatchDetailsModal(matchId);
+                }
+            }
+        });
+    }
+    
+    // Modal close listeners
+    const closeBtn = document.getElementById('modal-close-button');
+    const modal = document.getElementById('match-modal');
+    if (closeBtn && modal) {
+        closeBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+        
+        // Close modal when clicking outside content
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.add('hidden');
+            }
+        });
+    }
+
+    const modalTabs = document.getElementById('modal-tabs');
+    if (modalTabs) {
+        modalTabs.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-match-tab]');
+            if (!button) return;
+            setActiveMatchTab(button.dataset.matchTab);
+            renderMatchDetailsTab();
+        });
+    }
+
+    const modalContent = document.getElementById('modal-tab-content');
+    if (modalContent) {
+        modalContent.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-performance-puuid]');
+            if (!button) return;
+            currentPerformancePuuid = button.dataset.performancePuuid;
+            setActiveMatchTab('performance');
+            renderMatchDetailsTab();
+        });
+    }
+    
     fetchSessionStatus();
     setInterval(fetchSessionStatus, 3000);
 }

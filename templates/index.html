@@ -500,6 +500,45 @@
         </section>
     </div>
 
+    <!-- Match Details Leaderboard Modal -->
+    <div id="match-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button class="modal-close-button" id="modal-close-button" type="button">&times;</button>
+            
+            <div class="modal-match-header" id="modal-match-header">
+                <div class="modal-header-banner" id="modal-header-banner"></div>
+                <div class="modal-header-body">
+                    <div>
+                        <span class="modal-match-kicker" id="modal-match-kicker">COMPETITIVE MATCH</span>
+                        <h2 class="modal-match-result" id="modal-match-result">VICTORY</h2>
+                    </div>
+                    <div class="modal-header-meta">
+                        <span id="modal-match-map">ASCENT</span>
+                        <span class="modal-meta-divider">·</span>
+                        <span id="modal-match-mode">COMPETITIVE</span>
+                        <span class="modal-meta-divider">/</span>
+                        <span id="modal-match-duration">--</span>
+                    </div>
+                    <div class="modal-match-scoreline" id="modal-match-scoreline">13-10</div>
+                </div>
+            </div>
+            
+            <div class="modal-tabs" id="modal-tabs">
+                <button class="modal-tab active" type="button" data-match-tab="scoreboard">Scoreboard</button>
+                <button class="modal-tab" type="button" data-match-tab="performance">Performance</button>
+                <button class="modal-tab" type="button" data-match-tab="economy">Economy</button>
+                <button class="modal-tab" type="button" data-match-tab="rounds">Rounds</button>
+                <button class="modal-tab" type="button" data-match-tab="duels">Duels</button>
+            </div>
+
+            <div class="modal-tab-content" id="modal-tab-content">
+                <div class="empty-state-card">
+                    <span class="empty-state-text">Loading match details...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="/static/js/app.js"></script>
 </body>
