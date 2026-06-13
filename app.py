@@ -2,6 +2,8 @@ import os
 import asyncio
 import base64
 import json
+import math
+import re
 from datetime import datetime, timezone
 import httpx
 from dotenv import load_dotenv
@@ -10,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from asset_manager import AssetManager
 from database import DatabaseManager
+from data.predict_trs_generated import predict_trs_raw
 
 load_dotenv()
 
@@ -149,15 +152,55 @@ def get_rank_index(rank_name: str) -> int:
     @param rank_name: The name of the rank.
     @return: The index integer.
     """
+    clean = str(rank_name or "").lower()
+    roman_map = {"iii": "3", "ii": "2", "i": "1"}
+    for rank_root in ["iron", "bronze", "silver", "gold", "platinum", "diamond", "ascendant", "immortal"]:
+        clean = re.sub(
+            rf"\b{rank_root}\s+(iii|ii|i)\b",
+            lambda match: f"{rank_root} {roman_map[match.group(1)]}",
+            clean,
+        )
+
     for i, r in enumerate(RANKS):
-        if r.lower() in rank_name.lower():
+        if r.lower() in clean:
             return i
     return 0
 
 
-def calculate_tracker_score(kd: float, hs_percent: float, acs: int, rank: str, peak_rank: str) -> int:
+def average_rank_name(players: list[dict]) -> str:
+    rank_indexes = [
+        get_rank_index(str(player.get("rank", "")))
+        for player in players
+        if get_rank_index(str(player.get("rank", ""))) > 0
+    ]
+    if not rank_indexes:
+        return ""
+    return RANKS[max(0, min(len(RANKS) - 1, round(sum(rank_indexes) / len(rank_indexes))))]
+
+
+def calculate_tracker_score(
+    kd: float,
+    hs_percent: float,
+    acs: int,
+    rank: str,
+    peak_rank: str,
+    adr: float | None = None,
+    dda: float | None = None,
+    kast: float | None = None,
+    kills: int | None = None,
+    deaths: int | None = None,
+    assists: int | None = None,
+    fk: int = 0,
+    fd: int = 0,
+    mk: int = 0,
+    rounds_played: int | None = None,
+    won: bool | None = None,
+    team_rounds: int | None = None,
+    enemy_rounds: int | None = None,
+    avg_rank: str | None = None
+) -> int:
     """
-    Computes a player performance score out of 1000.
+    Computes a Tracker.gg-like performance score out of 1000.
 
     @param kd: Kill-death ratio.
     @param hs_percent: Headshot percentage.
@@ -166,15 +209,55 @@ def calculate_tracker_score(kd: float, hs_percent: float, acs: int, rank: str, p
     @param peak_rank: Peak rank.
     @return: The computed score.
     """
-    acs_pts = min(200, round((acs / 300) * 200))
-    kd_pts = min(200, round((kd / 1.5) * 200))
-    hs_pts = min(200, round((hs_percent / 35) * 200))
-    form_pts = 125
-    curr_idx = get_rank_index(rank)
-    peak_idx = get_rank_index(peak_rank)
-    gap = max(0, peak_idx - curr_idx)
-    gap_pts = max(50, 150 - (gap * 15))
-    return acs_pts + kd_pts + hs_pts + form_pts + gap_pts
+    rounds = max(int(_number_or_zero(rounds_played)), 1)
+    safe_kills = int(_number_or_zero(kills))
+    safe_deaths = int(_number_or_zero(deaths))
+    safe_assists = int(_number_or_zero(assists))
+    if kills is None and deaths is None:
+        safe_deaths = rounds
+        safe_kills = round(kd * safe_deaths)
+    safe_adr = float(adr if adr is not None else max(0, acs * 0.68))
+    safe_dda = float(dda if dda is not None else 0)
+    safe_kast = float(kast if kast is not None else 70)
+    safe_hs = float(hs_percent or 0) / 100
+    safe_kast_rate = safe_kast / 100
+    team_total = int(_number_or_zero(team_rounds))
+    enemy_total = int(_number_or_zero(enemy_rounds))
+    total_rounds = max(team_total + enemy_total, rounds)
+    round_diff = ((team_total - enemy_total) / total_rounds) if team_total or enemy_total else 0
+    won_value = 1 if won else 0
+    player_rank_index = get_rank_index(rank or peak_rank or "")
+    avg_rank_index = get_rank_index(avg_rank or "")
+    rank_scaled = player_rank_index / 25
+    avg_rank_scaled = avg_rank_index / 25
+    rank_delta_scaled = (player_rank_index - avg_rank_index) / 25 if avg_rank_index else 0
+    plus_minus = safe_kills - safe_deaths
+    log_kill_death = math.log1p(max(safe_kills, 0)) - math.log1p(max(safe_deaths, 0))
+
+    stats = {
+        "acs": float(acs),
+        "adr": float(safe_adr),
+        "dda": float(safe_dda),
+        "kd": float(kd),
+        "plus_minus": float(plus_minus),
+        "hs_rate": float(safe_hs),
+        "kast_rate": float(safe_kast_rate),
+        "fk_per_round": float(fk / rounds),
+        "fd_per_round": float(fd / rounds),
+        "mk_per_round": float(mk / rounds),
+        "assists_per_round": float(safe_assists / rounds),
+        "kills_per_round": float(safe_kills / rounds),
+        "deaths_per_round": float(safe_deaths / rounds),
+        "won": float(won_value),
+        "round_diff": float(round_diff),
+        "player_rank_idx": float(player_rank_index),
+        "avg_rank_idx": float(avg_rank_index),
+        "rank_delta": float(player_rank_index - avg_rank_index),
+        "log_kill_death": float(log_kill_death)
+    }
+
+    score = predict_trs_raw(stats)
+    return max(100, min(999, round(score)))
 
 
 def rank_name_from_tier(tier: int | None) -> str:
@@ -742,7 +825,7 @@ def format_duration_from_millis(duration_ms) -> str:
     return f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
 
 
-def build_round_player_metrics(round_results: list, player_puuids: list[str]) -> dict:
+def build_round_player_metrics(round_results: list, player_puuids: list[str], player_teams: dict = None) -> dict:
     """
     Builds per-player metrics derived from round results.
     """
@@ -768,6 +851,7 @@ def build_round_player_metrics(round_results: list, player_puuids: list[str]) ->
         first_kill = None
         player_stats_list = round_result.get("playerStats") or round_result.get("PlayerStats") or []
 
+        round_kills = []
         for player_stats in player_stats_list:
             p_id = player_stats.get("subject") or player_stats.get("Subject")
             if not p_id:
@@ -800,6 +884,12 @@ def build_round_player_metrics(round_results: list, player_puuids: list[str]) ->
                         assists_by_player[assistant] += 1
                 if not first_kill or round_time < first_kill["round_time"]:
                     first_kill = {"killer": killer, "victim": victim, "round_time": round_time}
+                if killer and victim:
+                    round_kills.append({
+                        "killer": killer,
+                        "victim": victim,
+                        "time": round_time
+                    })
 
         if first_kill:
             if first_kill["killer"] in metrics:
@@ -807,11 +897,38 @@ def build_round_player_metrics(round_results: list, player_puuids: list[str]) ->
             if first_kill["victim"] in metrics:
                 metrics[first_kill["victim"]]["first_deaths"] += 1
 
+        traded_players = set()
+        if player_teams:
+            round_kills.sort(key=lambda x: x["time"])
+            for idx_k, rk in enumerate(round_kills):
+                v = rk["victim"]
+                k = rk["killer"]
+                t = rk["time"]
+                v_team = player_teams.get(v)
+                if not v_team:
+                    continue
+                # Look ahead for a trade within 4 seconds
+                for sub_rk in round_kills[idx_k + 1:]:
+                    if sub_rk["time"] - t > 4000:
+                        break
+                    if sub_rk["victim"] == k:
+                        sub_killer = sub_rk["killer"]
+                        if player_teams.get(sub_killer) == v_team and sub_killer != v:
+                            traded_players.add(v)
+                            break
+
         for puuid in player_puuids:
             kill_count = kills_by_player.get(puuid, 0)
             if kill_count >= 2 and puuid in metrics:
                 metrics[puuid]["multi_kills"] += 1
-            if puuid in metrics and (kill_count > 0 or assists_by_player.get(puuid, 0) > 0 or puuid not in deaths):
+            
+            is_kast = (
+                kill_count > 0 or
+                assists_by_player.get(puuid, 0) > 0 or
+                puuid not in deaths or
+                puuid in traded_players
+            )
+            if puuid in metrics and is_kast:
                 metrics[puuid]["kast_rounds"] += 1
 
     return metrics
@@ -1417,6 +1534,37 @@ async def get_career() -> dict:
     return career
 
 
+@app.post("/api/calculate-score")
+async def api_calculate_score(data: dict) -> dict:
+    """
+    Calcule le Tracker Score (TRS) à la volée pour les paramètres fournis,
+    en utilisant le modèle GBR du backend.
+    """
+    score = calculate_tracker_score(
+        kd=float(data.get("kd", 0.0)),
+        hs_percent=float(data.get("hs_percent", 0.0)),
+        acs=int(data.get("acs", 0)),
+        rank=str(data.get("rank", "Unranked")),
+        peak_rank=str(data.get("peak_rank", "Unranked")),
+        adr=data.get("adr"),
+        dda=data.get("dda"),
+        kast=data.get("kast"),
+        kills=data.get("kills"),
+        deaths=data.get("deaths"),
+        assists=data.get("assists"),
+        fk=int(data.get("fk", 0)),
+        fd=int(data.get("fd", 0)),
+        mk=int(data.get("mk", 0)),
+        rounds_played=data.get("rounds_played"),
+        won=data.get("won"),
+        team_rounds=data.get("team_rounds"),
+        enemy_rounds=data.get("enemy_rounds"),
+        avg_rank=data.get("avg_rank")
+    )
+    return {"status": "ok", "score": score}
+
+
+
 @app.get("/api/match-leaderboard/{match_id}")
 async def get_match_leaderboard(match_id: str) -> dict:
     """
@@ -1506,8 +1654,13 @@ async def get_match_leaderboard(match_id: str) -> dict:
             ally_team_id = players[0].get("teamId") or players[0].get("TeamID") or players[0].get("teamID")
             
         # Determine team scores & result
+        team_wins = {}
         ally_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) == ally_team_id), {})
         enemy_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) != ally_team_id), {})
+        for team in teams:
+            team_id = team.get("teamId") or team.get("TeamID")
+            if team_id:
+                team_wins[team_id] = bool(team.get("won") if "won" in team else team.get("Won", False))
         
         rounds_won = int(_number_or_zero(ally_team.get("roundsWon") or ally_team.get("RoundsWon") or ally_team.get("numPoints")))
         enemy_rounds = int(_number_or_zero(enemy_team.get("roundsWon") or enemy_team.get("RoundsWon") or enemy_team.get("numPoints")))
@@ -1537,7 +1690,11 @@ async def get_match_leaderboard(match_id: str) -> dict:
         allies_list = []
         enemies_list = []
         player_puuids = [p.get("subject") or p.get("Subject") or "" for p in players]
-        round_metric_map = build_round_player_metrics(round_results, player_puuids)
+        player_teams = {
+            (p.get("subject") or p.get("Subject") or ""): (p.get("teamId") or p.get("TeamID") or p.get("teamID") or "")
+            for p in players
+        }
+        round_metric_map = build_round_player_metrics(round_results, player_puuids, player_teams)
         needs_name_service = any(not match_player_display_name(p) for p in players)
         name_service_map = await resolve_current_riot_player_names(player_puuids) if needs_name_service else {}
         
@@ -1577,14 +1734,6 @@ async def get_match_leaderboard(match_id: str) -> dict:
                 or "Unknown Player"
             )
             
-            tracker_score = calculate_tracker_score(
-                kills / max(deaths, 1),
-                hs_percent,
-                acs,
-                rank,
-                rank
-            )
-            
             player_info = {
                 "puuid": p_puuid,
                 "name": full_name,
@@ -1609,7 +1758,8 @@ async def get_match_leaderboard(match_id: str) -> dict:
                 "kills": kills,
                 "deaths": deaths,
                 "assists": assists,
-                "score": tracker_score,
+                "score": 0,
+                "rounds_played": rounds_played,
                 "is_self": p_puuid == anchor_puuid
             }
             
@@ -1620,6 +1770,34 @@ async def get_match_leaderboard(match_id: str) -> dict:
             else:
                 enemies_list.append(player_info)
                 
+        for team_players in (allies_list, enemies_list):
+            team_average_rank = average_rank_name(team_players)
+            for player in team_players:
+                player_team_rounds = rounds_won if player["team_id"] == ally_team_id else enemy_rounds
+                player_enemy_rounds = enemy_rounds if player["team_id"] == ally_team_id else rounds_won
+                player_won = team_wins.get(player["team_id"], player["team_id"] == ally_team_id and won)
+                player["score"] = calculate_tracker_score(
+                    player["kd"],
+                    player["hs_percent"],
+                    player["acs"],
+                    player["rank"],
+                    player["rank"],
+                    adr=player["adr"],
+                    dda=player["dda"],
+                    kast=player["kast"],
+                    kills=player["kills"],
+                    deaths=player["deaths"],
+                    assists=player["assists"],
+                    fk=player["fk"],
+                    fd=player["fd"],
+                    mk=player["mk"],
+                    rounds_played=player["rounds_played"],
+                    won=player_won,
+                    team_rounds=player_team_rounds,
+                    enemy_rounds=player_enemy_rounds,
+                    avg_rank=team_average_rank
+                )
+
         allies_list.sort(key=lambda x: x.get("acs", 0), reverse=True)
         enemies_list.sort(key=lambda x: x.get("acs", 0), reverse=True)
         player_lookup = {player["puuid"]: player for player in allies_list + enemies_list}

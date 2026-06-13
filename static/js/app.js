@@ -47,8 +47,16 @@ function formatGameMode(mode) {
  */
 function getRankIndex(rankName) {
     if (!rankName) return 0;
+    let cleanRankName = rankName.toLowerCase();
+    const romanMap = { iii: '3', ii: '2', i: '1' };
+    ['iron', 'bronze', 'silver', 'gold', 'platinum', 'diamond', 'ascendant', 'immortal'].forEach(rankRoot => {
+        cleanRankName = cleanRankName.replace(
+            new RegExp(`\\b${rankRoot}\\s+(iii|ii|i)\\b`, 'g'),
+            (_, roman) => `${rankRoot} ${romanMap[roman]}`
+        );
+    });
     for (let i = 0; i < RANKS.length; i++) {
-        if (rankName.toLowerCase().includes(RANKS[i].toLowerCase())) {
+        if (cleanRankName.includes(RANKS[i].toLowerCase())) {
             return i;
         }
     }
@@ -56,19 +64,48 @@ function getRankIndex(rankName) {
 }
 
 /**
- * Calculates a player's tracker score out of 1000.
+ * Calculates the average rank of a list of players.
+ * 
+ * @param {Array} players List of players.
+ * @return {string} Average rank name.
  */
-function calculateTrackerScore(kd, hsPercent, acs, rank, peakRank) {
-    const acsPts = Math.min(200, Math.round((acs / 300) * 200));
-    const kdPts = Math.min(200, Math.round((kd / 1.5) * 200));
-    const hsPts = Math.min(200, Math.round((hsPercent / 35) * 200));
-    const formPts = 125;
-    const currIdx = getRankIndex(rank);
-    const peakIdx = getRankIndex(peakRank);
-    const gap = Math.max(0, peakIdx - currIdx);
-    const gapPts = Math.max(50, 150 - (gap * 15));
-    return acsPts + kdPts + hsPts + formPts + gapPts;
+function averageRankName(players) {
+    const rankIndexes = players
+        .map(player => getRankIndex(player.rank || ""))
+        .filter(idx => idx > 0);
+    if (rankIndexes.length === 0) {
+        return "Unranked";
+    }
+    const sum = rankIndexes.reduce((a, b) => a + b, 0);
+    const avgIdx = Math.round(sum / rankIndexes.length);
+    return RANKS[Math.max(0, Math.min(RANKS.length - 1, avgIdx))];
 }
+
+/**
+ * Calculates a player's tracker score out of 1000 dynamically by querying the GBR backend model.
+ */
+async function calculateTrackerScore(kd, hsPercent, acs, rank, peakRank, details = {}) {
+    try {
+        const response = await fetch('/api/calculate-score', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                kd: kd,
+                hs_percent: hsPercent,
+                acs: acs,
+                rank: rank,
+                peak_rank: peakRank,
+                ...details
+            })
+        });
+        const data = await response.json();
+        return data.score || 0;
+    } catch (err) {
+        console.error("Error calculating score:", err);
+        return 0;
+    }
+}
+
 
 
 /**
@@ -442,7 +479,7 @@ async function importCompetitiveHistory() {
 /**
  * Applies the career game mode filter and updates the UI accordingly.
  */
-function applyCareerFilter() {
+async function applyCareerFilter() {
     if (!lastCareerData) return;
     
     const filterSelect = document.getElementById('career-mode-filter');
@@ -500,7 +537,7 @@ function applyCareerFilter() {
         let trackerScore = 0;
         if (count) {
             const currentRank = lastCareerData.current_rank || 'Unranked';
-            trackerScore = calculateTrackerScore(Number(avgKD), Number(avgHS), avgACS, currentRank, currentRank);
+            trackerScore = await calculateTrackerScore(Number(avgKD), Number(avgHS), avgACS, currentRank, currentRank);
         }
         
         setText('career-player', lastCareerData.player_name || 'No account loaded');
@@ -849,7 +886,7 @@ function renderScoreboardTab() {
 }
 
 function renderScoreboardTeam(label, players, side) {
-    const avgRank = players.find(player => player.rank && player.rank !== 'Unranked')?.rank || 'Unranked';
+    const avgRank = averageRankName(players);
     const rows = players.map(player => `
         <tr class="${player.is_self ? 'self-row' : ''}">
             <td class="score-player-cell">
