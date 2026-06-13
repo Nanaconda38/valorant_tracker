@@ -2,21 +2,25 @@ import os
 import asyncio
 import base64
 import json
+from datetime import datetime, timezone
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from database import DatabaseManager
 
 load_dotenv()
 
 HENRIK_API_KEY = os.getenv("HENRIK_API_KEY", "").strip() or None
+SESSION_STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 app = FastAPI(title="Valorant Local Tracker")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 templates = Jinja2Templates(directory="templates")
+db_manager = DatabaseManager()
 
 tracker_state = {
     "status": "offline",
@@ -26,8 +30,18 @@ tracker_state = {
     "queue_id": "",
     "map_id": "",
     "allies": [],
-    "enemies": []
+    "enemies": [],
+    "current_match_id": "",
+    "core_match_id": "",
+    "last_match": None,
+    "last_match_status": "",
+    "session_summary": {
+        "wins": 0,
+        "losses": 0,
+        "rr_delta": 0
+    }
 }
+persisted_match_ids = set()
 
 stats_cache = {}
 stats_cache_context = {
@@ -50,7 +64,7 @@ def clear_stats_cache(reason: str) -> None:
 
 def refresh_stats_cache_context() -> None:
     """
-    Invalidates cached stats when the active game context changes.
+    Tracks the active game context without invalidating career stats cache.
     """
     current_context = {
         "game_phase": tracker_state.get("game_phase", "OFFLINE"),
@@ -63,7 +77,7 @@ def refresh_stats_cache_context() -> None:
             f"{stats_cache_context['game_phase']}:{stats_cache_context['queue_id']}:{stats_cache_context['map_id']}"
             f" -> {current_context['game_phase']}:{current_context['queue_id']}:{current_context['map_id']}"
         )
-        clear_stats_cache(reason)
+        print(f"DEBUG CONTEXT CHANGE: {reason}", flush=True)
         stats_cache_context.update(current_context)
 
 AGENT_MAPPING = {
@@ -197,6 +211,230 @@ def find_premade_groups(players: list) -> dict:
     return group_map
 
 
+def _number_or_zero(value) -> float:
+    """
+    Converts numeric API values to a number and treats None/invalid values as zero.
+
+    @param value: API value that may be numeric, null, or malformed.
+    @return: Numeric value or zero.
+    """
+    if value is None:
+        return 0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def start_tracking_match(match_id: str) -> None:
+    """
+    Stores the active match id and clears the previous post-match summary.
+
+    @param match_id: Riot match id for the active game.
+    """
+    if not match_id:
+        return
+    if tracker_state.get("current_match_id") != match_id:
+        tracker_state["current_match_id"] = match_id
+        tracker_state["core_match_id"] = ""
+        tracker_state["last_match"] = None
+        tracker_state["last_match_status"] = ""
+
+
+def build_post_match_summary(match_data: dict, puuid: str) -> dict | None:
+    """
+    Builds the local player's completed match summary from Riot PD match details.
+
+    @param match_data: PD match-details response.
+    @param puuid: Local player's PUUID.
+    @return: Summary dictionary, or None when the payload is incomplete.
+    """
+    players = match_data.get("players", [])
+    player = next((p for p in players if p.get("subject") == puuid or p.get("Subject") == puuid), None)
+    if not player:
+        return None
+
+    stats = player.get("stats") or player.get("Stats") or {}
+    match_info = match_data.get("matchInfo") or match_data.get("MatchInfo") or {}
+    teams = match_data.get("teams") or match_data.get("Teams") or []
+    team_id = player.get("teamId") or player.get("TeamID") or player.get("teamID")
+
+    team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) == team_id), {})
+    enemy_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) != team_id), {})
+
+    rounds_won = int(_number_or_zero(team.get("roundsWon") or team.get("RoundsWon") or team.get("numPoints")))
+    enemy_rounds = int(_number_or_zero(enemy_team.get("roundsWon") or enemy_team.get("RoundsWon") or enemy_team.get("numPoints")))
+    won = bool(team.get("won") if "won" in team else team.get("Won", rounds_won > enemy_rounds))
+
+    kills = int(_number_or_zero(stats.get("kills") or stats.get("Kills")))
+    deaths = int(_number_or_zero(stats.get("deaths") or stats.get("Deaths")))
+    assists = int(_number_or_zero(stats.get("assists") or stats.get("Assists")))
+    score = int(_number_or_zero(stats.get("score") or stats.get("Score")))
+    rounds_played = int(_number_or_zero(stats.get("roundsPlayed") or stats.get("RoundsPlayed") or rounds_won + enemy_rounds))
+    acs = round(score / max(rounds_played, 1))
+
+    headshots = 0
+    bodyshots = 0
+    legshots = 0
+    for damage in player.get("roundDamage", []) or player.get("RoundDamage", []) or []:
+        headshots += int(_number_or_zero(damage.get("headshots") or damage.get("Headshots")))
+        bodyshots += int(_number_or_zero(damage.get("bodyshots") or damage.get("Bodyshots")))
+        legshots += int(_number_or_zero(damage.get("legshots") or damage.get("Legshots")))
+    total_shots = headshots + bodyshots + legshots
+    hs_percent = round((headshots / total_shots) * 100, 1) if total_shots > 0 else 0.0
+
+    agent_id = player.get("characterId") or player.get("CharacterID") or ""
+    queue_id = match_info.get("queueID") or match_info.get("queueId") or tracker_state.get("queue_id", "")
+    map_id = match_info.get("mapId") or match_info.get("mapID") or tracker_state.get("map_id", "")
+
+    return {
+        "match_id": match_info.get("matchId") or match_info.get("matchID") or tracker_state.get("current_match_id", ""),
+        "queue_id": queue_id,
+        "map_id": map_id,
+        "agent": AGENT_MAPPING.get(agent_id, "Unknown Agent"),
+        "won": won,
+        "result": "VICTORY" if won else "DEFEAT",
+        "scoreline": f"{rounds_won}-{enemy_rounds}" if rounds_won or enemy_rounds else "--",
+        "kills": kills,
+        "deaths": deaths,
+        "assists": assists,
+        "kd": round(kills / max(deaths, 1), 2),
+        "kda": round((kills + assists) / max(deaths, 1), 2),
+        "acs": acs,
+        "score": score,
+        "hs_percent": hs_percent,
+        "rounds_played": rounds_played
+    }
+
+
+async def fetch_post_match_summary(client: httpx.AsyncClient, pd_url: str, match_id: str, puuid: str, headers: dict) -> dict | None:
+    """
+    Fetches completed match details and returns the local player's game stats.
+
+    @param client: HTTP client.
+    @param pd_url: Riot PD base URL.
+    @param match_id: Match id to fetch.
+    @param puuid: Local player's PUUID.
+    @param headers: Riot auth headers.
+    @return: Summary dictionary, or None while match details are not ready.
+    """
+    match_resp = await client.get(f"{pd_url}/match-details/v1/matches/{match_id}", headers=headers)
+    if match_resp.status_code != 200:
+        print(f"DEBUG POST MATCH: {match_resp.status_code} for {match_id}", flush=True)
+        return None
+    return build_post_match_summary(match_resp.json(), puuid)
+
+
+def extract_rr_change(mmr_data: dict, match_id: str) -> int:
+    """
+    Extracts the RR delta for a match from Riot MMR payloads.
+
+    @param mmr_data: Riot MMR response payload.
+    @param match_id: Completed match id.
+    @return: Ranked rating delta, or zero when unavailable.
+    """
+    candidates = []
+    matches = mmr_data.get("Matches", [])
+    if isinstance(matches, list):
+        candidates.extend(matches)
+
+    latest = mmr_data.get("LatestCompetitiveUpdate")
+    if isinstance(latest, dict):
+        candidates.append(latest)
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        if item.get("MatchID") == match_id or item.get("MatchId") == match_id or item.get("matchId") == match_id:
+            return int(_number_or_zero(item.get("RankedRatingEarned")))
+
+    return 0
+
+
+async def fetch_rr_change(
+    client: httpx.AsyncClient,
+    local_url: str,
+    pd_url: str,
+    puuid: str,
+    match_id: str,
+    local_headers: dict,
+    remote_headers: dict
+) -> int:
+    """
+    Fetches the RR delta for the completed match.
+
+    @param client: HTTP client.
+    @param local_url: Local Riot client base URL.
+    @param pd_url: Riot PD base URL.
+    @param puuid: Local player's PUUID.
+    @param match_id: Completed match id.
+    @param local_headers: Local auth headers.
+    @param remote_headers: Riot PD auth headers.
+    @return: Ranked rating delta, or zero when unavailable/non-ranked.
+    """
+    local_resp = await client.get(f"{local_url}/mmr/v1/user/{puuid}", headers=local_headers)
+    if local_resp.status_code == 200:
+        return extract_rr_change(local_resp.json(), match_id)
+
+    updates_resp = await client.get(
+        f"{pd_url}/mmr/v1/players/{puuid}/competitiveupdates?startIndex=0&endIndex=10",
+        headers=remote_headers
+    )
+    if updates_resp.status_code == 200:
+        return extract_rr_change(updates_resp.json(), match_id)
+
+    player_mmr_resp = await client.get(f"{pd_url}/mmr/v1/players/{puuid}", headers=remote_headers)
+    if player_mmr_resp.status_code == 200:
+        return extract_rr_change(player_mmr_resp.json(), match_id)
+
+    print(f"DEBUG RR: local={local_resp.status_code} updates={updates_resp.status_code}", flush=True)
+    return 0
+
+
+def refresh_session_summary() -> None:
+    """
+    Updates the in-memory session widget state from SQLite.
+    """
+    tracker_state["session_summary"] = db_manager.get_session_summary(SESSION_STARTED_AT)
+
+
+def persist_completed_match(summary: dict) -> bool:
+    """
+    Saves a completed match once and refreshes the session summary.
+
+    @param summary: Completed match summary with RR delta included.
+    @return: True when inserted, False when already persisted or invalid.
+    """
+    match_id = summary.get("match_id")
+    if not match_id or match_id in persisted_match_ids:
+        refresh_session_summary()
+        return False
+
+    match_data = {
+        "match_id": match_id,
+        "date": datetime.now(timezone.utc).isoformat(),
+        "gamemode": summary.get("queue_id", ""),
+        "map": summary.get("map_id", ""),
+        "agent": summary.get("agent", ""),
+        "win_loss": "WIN" if summary.get("won") else "LOSS",
+        "rr_change": summary.get("rr_change", 0),
+        "acs": summary.get("acs", 0),
+        "kd": summary.get("kd", 0),
+        "hs_percent": summary.get("hs_percent", 0),
+        "kills": summary.get("kills", 0),
+        "deaths": summary.get("deaths", 0),
+        "assists": summary.get("assists", 0),
+        "score": summary.get("score", 0),
+        "kda": summary.get("kda", 0)
+    }
+    inserted = db_manager.save_match(match_data)
+    persisted_match_ids.add(match_id)
+    refresh_session_summary()
+    if inserted:
+        print(f"DEBUG DB: saved match {match_id} ({match_data['win_loss']}, {match_data['rr_change']} RR)", flush=True)
+    return inserted
+
+
 async def background_scan_loop() -> None:
     """
     Background loop that polls the lockfile and local LCU API to retrieve game status.
@@ -225,7 +463,7 @@ async def background_scan_loop() -> None:
             headers = lockfile_info["headers"]
             url = f"{protocol}://127.0.0.1:{port}"
             
-            async with httpx.AsyncClient(verify=False, timeout=2.0) as client:
+            async with httpx.AsyncClient(verify=False, timeout=5.0) as client:
                 try:
                     session_resp = await client.get(f"{url}/chat/v1/session", headers=headers)
                     if session_resp.status_code != 200:
@@ -291,7 +529,17 @@ async def background_scan_loop() -> None:
                 
                 remote_headers = None
                 glz_url = ""
-                if tracker_state["game_phase"] in ("PREGAME", "CORE-GAME"):
+                shard = ""
+                current_match_id = tracker_state.get("current_match_id", "")
+                last_match = tracker_state.get("last_match") or {}
+                needs_post_match_fetch = (
+                    tracker_state["status"] == "connected"
+                    and tracker_state["game_phase"] not in ("PREGAME", "CORE-GAME")
+                    and current_match_id
+                    and tracker_state.get("core_match_id") == current_match_id
+                    and last_match.get("match_id") != current_match_id
+                )
+                if tracker_state["game_phase"] in ("PREGAME", "CORE-GAME") or needs_post_match_fetch:
                     try:
                         token_resp = await client.get(f"{url}/entitlements/v1/token", headers=headers)
                         if token_resp.status_code == 200:
@@ -333,6 +581,7 @@ async def background_scan_loop() -> None:
                         pregame_player_resp = await client.get(f"{glz_url}/pregame/v1/players/{puuid}", headers=remote_headers)
                         if pregame_player_resp.status_code == 200:
                             match_id = pregame_player_resp.json().get("MatchID")
+                            start_tracking_match(match_id)
                             pregame_match_resp = await client.get(f"{glz_url}/pregame/v1/matches/{match_id}", headers=remote_headers)
                             if pregame_match_resp.status_code == 200:
                                 pregame_match_data = pregame_match_resp.json()
@@ -420,6 +669,8 @@ async def background_scan_loop() -> None:
                         core_player_resp = await client.get(f"{glz_url}/core-game/v1/players/{puuid}", headers=remote_headers)
                         if core_player_resp.status_code == 200:
                             match_id = core_player_resp.json().get("MatchID")
+                            start_tracking_match(match_id)
+                            tracker_state["core_match_id"] = match_id
                             core_match_resp = await client.get(f"{glz_url}/core-game/v1/matches/{match_id}", headers=remote_headers)
                             if core_match_resp.status_code == 200:
                                 core_match_data = core_match_resp.json()
@@ -513,10 +764,39 @@ async def background_scan_loop() -> None:
                                 tracker_state["enemies"] = new_enemies
                     except Exception as e:
                         print("CORE-GAME EXCEPTION:", str(e))
+                elif needs_post_match_fetch and remote_headers:
+                    try:
+                        pd_url = f"https://pd.{shard}.a.pvp.net"
+                        summary = await fetch_post_match_summary(
+                            client,
+                            pd_url,
+                            tracker_state["current_match_id"],
+                            puuid,
+                            remote_headers
+                        )
+                        tracker_state["allies"] = []
+                        tracker_state["enemies"] = []
+                        if summary:
+                            summary["rr_change"] = await fetch_rr_change(
+                                client,
+                                url,
+                                pd_url,
+                                puuid,
+                                tracker_state["current_match_id"],
+                                headers,
+                                remote_headers
+                            )
+                            tracker_state["last_match"] = summary
+                            tracker_state["last_match_status"] = "available"
+                            persist_completed_match(summary)
+                        else:
+                            tracker_state["last_match_status"] = "loading"
+                    except Exception as e:
+                        tracker_state["last_match_status"] = "loading"
+                        print("POST-MATCH EXCEPTION:", str(e))
                 else:
                     tracker_state["allies"] = []
                     tracker_state["enemies"] = []
-                    clear_stats_cache("left active match phase")
                     
         except Exception:
             tracker_state["status"] = "offline"
@@ -533,6 +813,8 @@ async def startup_event() -> None:
     """
     Fires on startup to initialize the background scanning task.
     """
+    db_manager.init_db()
+    refresh_session_summary()
     asyncio.create_task(background_scan_loop())
 
 
@@ -597,4 +879,3 @@ async def debug_lcu() -> dict:
             json.dump(res, f, indent=2)
             
         return res
-

@@ -8,6 +8,8 @@ let initialEnemiesAvgHtml = "";
  * Restores the HTML placeholders for the player lists and average stats.
  */
 function restorePlaceholders() {
+    setPostMatchLayout(false);
+    resetTeamHeaders();
     const alliesList = document.getElementById('allies-player-list');
     const enemiesList = document.getElementById('enemies-player-list');
     const alliesAvg = document.getElementById('allies-avg-stats');
@@ -24,6 +26,62 @@ function restorePlaceholders() {
     }
     if (enemiesAvg && initialEnemiesAvgHtml) {
         enemiesAvg.innerHTML = initialEnemiesAvgHtml;
+    }
+}
+
+/**
+ * Escapes dynamic text before inserting it into HTML templates.
+ *
+ * @param {string|number} value The value to escape.
+ * @return {string} The escaped string.
+ */
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+/**
+ * Converts Riot map paths to compact labels.
+ *
+ * @param {string} mapId Riot map id/path.
+ * @return {string} Display label.
+ */
+function formatMapLabel(mapId) {
+    if (!mapId) {
+        return 'Unknown Map';
+    }
+    const lastPart = mapId.split('/').filter(Boolean).pop() || mapId;
+    return lastPart.replace(/_/g, ' ');
+}
+
+/**
+ * Restores normal team section labels.
+ */
+function resetTeamHeaders() {
+    const alliesTitle = document.querySelector('#section-allies .team-title');
+    const enemiesTitle = document.querySelector('#section-enemies .team-title');
+    if (alliesTitle) {
+        alliesTitle.innerHTML = '<span class="title-prefix"></span>ALLIES';
+    }
+    if (enemiesTitle) {
+        enemiesTitle.innerHTML = '<span class="title-prefix"></span>ENEMIES';
+    }
+}
+
+/**
+ * Toggles the one-column post-match layout.
+ *
+ * @param {boolean} enabled True when showing the last match summary.
+ */
+function setPostMatchLayout(enabled) {
+    const dashboard = document.querySelector('.dashboard-main');
+    if (dashboard) {
+        dashboard.classList.toggle('post-match-mode', enabled);
     }
 }
 
@@ -69,6 +127,144 @@ function renderMessageState(isAllies, message) {
 }
 
 /**
+ * Renders the local player's completed match summary.
+ *
+ * @param {Object|null} summary Last match summary.
+ * @param {string} status Backend loading status.
+ */
+function renderPostMatchSummary(summary, status) {
+    setPostMatchLayout(true);
+    const alliesTitle = document.querySelector('#section-allies .team-title');
+    const alliesAvg = document.getElementById('allies-avg-stats');
+    const alliesList = document.getElementById('allies-player-list');
+
+    if (alliesTitle) {
+        alliesTitle.innerHTML = '<span class="title-prefix"></span>LAST MATCH';
+    }
+
+    if (!alliesList) {
+        return;
+    }
+
+    if (!summary) {
+        if (alliesAvg) {
+            alliesAvg.textContent = status === 'loading' ? 'FETCHING MATCH DETAILS' : 'MATCH ENDED';
+        }
+        alliesList.innerHTML = `
+            <div class="empty-state-card">
+                <span class="empty-state-text">Loading match stats...</span>
+            </div>
+        `;
+        return;
+    }
+
+    const resultClass = summary.won ? 'victory' : 'defeat';
+    const mapLabel = formatMapLabel(summary.map_id);
+    const queueLabel = summary.queue_id || 'Unknown queue';
+    const rrChange = Number(summary.rr_change || 0);
+    if (alliesAvg) {
+        alliesAvg.textContent = `${summary.result} | ${summary.scoreline} | ${queueLabel} | ${rrChange >= 0 ? '+' : ''}${rrChange} RR`;
+    }
+
+    alliesList.innerHTML = `
+        <div class="post-match-card ${resultClass}">
+            <div class="post-match-header">
+                <div>
+                    <span class="post-match-kicker">YOUR GAME</span>
+                    <h3 class="post-match-result">${escapeHtml(summary.result)}</h3>
+                </div>
+                <div class="post-match-scoreline">${escapeHtml(summary.scoreline)}</div>
+            </div>
+            <div class="post-match-meta">
+                <span>${escapeHtml(summary.agent)}</span>
+                <span>${escapeHtml(mapLabel)}</span>
+                <span>${escapeHtml(queueLabel)}</span>
+            </div>
+            <div class="post-match-stats">
+                <div class="post-match-stat">
+                    <span class="stat-label">K / D / A</span>
+                    <span class="stat-value">${summary.kills || 0} / ${summary.deaths || 0} / ${summary.assists || 0}</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">KD</span>
+                    <span class="stat-value">${Number(summary.kd || 0).toFixed(2)}</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">KDA</span>
+                    <span class="stat-value">${Number(summary.kda || 0).toFixed(2)}</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">ACS</span>
+                    <span class="stat-value">${summary.acs || 0}</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">HS%</span>
+                    <span class="stat-value">${Number(summary.hs_percent || 0).toFixed(1)}%</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">SCORE</span>
+                    <span class="stat-value">${summary.score || 0}</span>
+                </div>
+                <div class="post-match-stat">
+                    <span class="stat-label">RR</span>
+                    <span class="stat-value">${rrChange >= 0 ? '+' : ''}${rrChange}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Renders the current dashboard view from session data.
+ *
+ * @param {Object} data The backend session data.
+ */
+function renderDashboard(data) {
+    if (data.status !== 'connected') {
+        restorePlaceholders();
+        return;
+    }
+
+    if (data.game_phase === 'PREGAME') {
+        setPostMatchLayout(false);
+        resetTeamHeaders();
+        if (data.allies && data.allies.length > 0) {
+            renderPlayerList(data.allies, true);
+        } else {
+            renderMessageState(true, 'Loading draft allies...');
+        }
+        renderMessageState(false, 'Enemies hidden during Agent Select');
+    } else if (data.game_phase === 'CORE-GAME') {
+        setPostMatchLayout(false);
+        resetTeamHeaders();
+        if (data.allies && data.allies.length > 0) {
+            renderPlayerList(data.allies, true);
+        } else {
+            renderMessageState(true, 'Loading allies...');
+        }
+
+        if (data.enemies && data.enemies.length > 0) {
+            renderPlayerList(data.enemies, false);
+        } else {
+            renderMessageState(false, 'Loading enemies...');
+        }
+    } else if (data.last_match || data.last_match_status === 'loading') {
+        renderPostMatchSummary(data.last_match, data.last_match_status);
+    } else {
+        setPostMatchLayout(false);
+        resetTeamHeaders();
+        const mapLower = data.map_id ? data.map_id.toLowerCase() : '';
+        if (mapLower.includes('range') || mapLower.includes('poveglia')) {
+            renderMessageState(true, 'Practice Range Active');
+            renderMessageState(false, 'No enemies in Range');
+        } else {
+            renderMessageState(true, 'Waiting for match pre-game...');
+            renderMessageState(false, 'Waiting for match core-game...');
+        }
+    }
+}
+
+/**
  * Fetches the current session status from the FastAPI backend.
  * 
  * @return {Promise<void>} Resolves when status is fetched and UI is updated.
@@ -80,40 +276,8 @@ async function fetchSessionStatus() {
             const data = await response.json();
             currentPuuid = data.puuid;
             updateConnectionUI(data);
-            
-            if (data.status === 'connected') {
-                if (data.game_phase === 'PREGAME') {
-                    if (data.allies && data.allies.length > 0) {
-                        renderPlayerList(data.allies, true);
-                    } else {
-                        renderMessageState(true, 'Loading draft allies...');
-                    }
-                    renderMessageState(false, 'Enemies hidden during Agent Select');
-                } else if (data.game_phase === 'CORE-GAME') {
-                    if (data.allies && data.allies.length > 0) {
-                        renderPlayerList(data.allies, true);
-                    } else {
-                        renderMessageState(true, 'Loading allies...');
-                    }
-                    
-                    if (data.enemies && data.enemies.length > 0) {
-                        renderPlayerList(data.enemies, false);
-                    } else {
-                        renderMessageState(false, 'Loading enemies...');
-                    }
-                } else {
-                    const mapLower = data.map_id ? data.map_id.toLowerCase() : '';
-                    if (mapLower.includes('range') || mapLower.includes('poveglia')) {
-                        renderMessageState(true, 'Practice Range Active');
-                        renderMessageState(false, 'No enemies in Range');
-                    } else {
-                        renderMessageState(true, 'Waiting for match pre-game...');
-                        renderMessageState(false, 'Waiting for match core-game...');
-                    }
-                }
-            } else {
-                restorePlaceholders();
-            }
+            updateSessionWidget(data.session_summary);
+            renderDashboard(data);
         } else {
             updateConnectionUI({ status: 'offline', game_phase: 'OFFLINE' });
             restorePlaceholders();
@@ -122,6 +286,31 @@ async function fetchSessionStatus() {
         updateConnectionUI({ status: 'offline', game_phase: 'OFFLINE' });
         restorePlaceholders();
     }
+}
+
+/**
+ * Updates the session RR widget in the header.
+ *
+ * @param {Object} summary Session summary from the backend.
+ */
+function updateSessionWidget(summary) {
+    const winsEl = document.getElementById('session-wins');
+    const lossesEl = document.getElementById('session-losses');
+    const rrEl = document.getElementById('session-rr-delta');
+
+    if (!winsEl || !lossesEl || !rrEl) {
+        return;
+    }
+
+    const wins = Number(summary?.wins || 0);
+    const losses = Number(summary?.losses || 0);
+    const rrDelta = Number(summary?.rr_delta || 0);
+
+    winsEl.textContent = `${wins} W`;
+    lossesEl.textContent = `${losses} L`;
+    rrEl.textContent = `${rrDelta >= 0 ? '+' : ''}${rrDelta} RR`;
+    rrEl.classList.toggle('positive', rrDelta >= 0);
+    rrEl.classList.toggle('negative', rrDelta < 0);
 }
 
 /**
@@ -194,8 +383,8 @@ function renderPlayerList(players, isAllies) {
     let totalKD = 0;
     
     players.forEach(player => {
-        totalACS += player.acs;
-        totalKD += player.kd;
+        totalACS += Number(player.acs || 0);
+        totalKD += Number(player.kd || 0);
         
         const card = document.createElement('div');
         card.className = 'player-card';
@@ -216,6 +405,24 @@ function renderPlayerList(players, isAllies) {
         
         const scoreVal = player.score !== undefined ? player.score : 600;
         const scoreClass = getScoreClass(scoreVal);
+        const statHtml = `
+                <div class="stat-box">
+                    <span class="stat-label">KD</span>
+                    <span class="stat-value">${Number(player.kd || 0).toFixed(2)}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">HS%</span>
+                    <span class="stat-value">${Number(player.hs_percent || 0).toFixed(1)}%</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">ACS</span>
+                    <span class="stat-value">${player.acs || 0}</span>
+                </div>
+                <div class="stat-box tracker-score-box">
+                    <span class="stat-label">SCORE</span>
+                    <span class="stat-value ${scoreClass}">${scoreVal}</span>
+                </div>
+        `;
         
         card.innerHTML = `
             <div class="player-identity">
@@ -232,22 +439,7 @@ function renderPlayerList(players, isAllies) {
                 <div class="peak-rank">Peak: ${player.peak_rank}</div>
             </div>
             <div class="player-stats">
-                <div class="stat-box">
-                    <span class="stat-label">KD</span>
-                    <span class="stat-value">${player.kd.toFixed(2)}</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">HS%</span>
-                    <span class="stat-value">${player.hs_percent.toFixed(1)}%</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">ACS</span>
-                    <span class="stat-value">${player.acs}</span>
-                </div>
-                <div class="stat-box tracker-score-box">
-                    <span class="stat-label">SCORE</span>
-                    <span class="stat-value ${scoreClass}">${scoreVal}</span>
-                </div>
+                ${statHtml}
             </div>
             <div class="player-badges">
                 ${badgeHtml}

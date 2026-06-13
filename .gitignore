@@ -12,6 +12,7 @@
 *.env
 venv/
 .gitignore
+tracker.db
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

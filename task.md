@@ -112,3 +112,28 @@
 
 - `[x]` **Recette et Validation Phase 4**
   - `[x]` Rejoindre un match en direct (ex. Team Deathmatch) et valider le chargement complet des 10 joueurs, du score tracker et des premades dans le dashboard
+
+---
+
+## 📊 Avancement de la Phase 5 : Base SQLite & Session Tracker
+
+- `[x]` **Modèle SQLite**
+  - `[x]` Initialiser `tracker.db`
+  - `[x]` Créer la table `my_matches` avec les champs post-match principaux
+  - `[x]` Empêcher les doublons via `match_id`
+
+- `[x]` **Enregistrement Post-Match & RR**
+  - `[x]` Réutiliser le résumé post-game après retour `MENUS`
+  - `[x]` Récupérer le delta RR via les endpoints MMR Riot disponibles
+  - `[x]` Sauvegarder la ligne de match dans SQLite
+
+- `[x]` **UI de Session**
+  - `[x]` Exposer `session_summary` dans `/api/session-status`
+  - `[x]` Mettre à jour le widget haut de page avec wins/losses/RR depuis la session serveur
+  - `[x]` Afficher le RR sur la carte post-match
+
+- `[/]` **Recette et Validation Phase 5**
+  - `[x]` Valider le modèle SQLite sur base temporaire
+  - `[x]` Valider le parsing RR sur payloads Riot
+  - `[x]` Valider l'affichage du widget et de la carte post-match dans Chrome visible avec données simulées
+  - `[/]` Confirmer après une vraie partie que `tracker.db` s'incrémente et que le RR correspond au client
