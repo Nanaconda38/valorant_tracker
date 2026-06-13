@@ -3,6 +3,70 @@ let initialAlliesHtml = "";
 let initialEnemiesHtml = "";
 let initialAlliesAvgHtml = "";
 let initialEnemiesAvgHtml = "";
+let lastCareerData = null;
+
+const RANKS = [
+    "Unranked",
+    "Iron 1", "Iron 2", "Iron 3",
+    "Bronze 1", "Bronze 2", "Bronze 3",
+    "Silver 1", "Silver 2", "Silver 3",
+    "Gold 1", "Gold 2", "Gold 3",
+    "Platinum 1", "Platinum 2", "Platinum 3",
+    "Diamond 1", "Diamond 2", "Diamond 3",
+    "Ascendant 1", "Ascendant 2", "Ascendant 3",
+    "Immortal 1", "Immortal 2", "Immortal 3",
+    "Radiant"
+];
+
+/**
+ * Maps queue IDs to user-friendly titles and formats game mode strings.
+ * Replaces HURM with TEAM DEATHMATCH.
+ * 
+ * @param {string} mode Game mode queue ID.
+ * @return {string} Formatted game mode name.
+ */
+function formatGameMode(mode) {
+    if (!mode) {
+        return '';
+    }
+    const upper = mode.trim().toUpperCase();
+    if (upper === 'HURM') {
+        return 'TEAM DEATHMATCH';
+    }
+    return upper;
+}
+
+/**
+ * Gets index of a rank name.
+ * 
+ * @param {string} rankName The name of the rank.
+ * @return {number} Index.
+ */
+function getRankIndex(rankName) {
+    if (!rankName) return 0;
+    for (let i = 0; i < RANKS.length; i++) {
+        if (rankName.toLowerCase().includes(RANKS[i].toLowerCase())) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+/**
+ * Calculates a player's tracker score out of 1000.
+ */
+function calculateTrackerScore(kd, hsPercent, acs, rank, peakRank) {
+    const acsPts = Math.min(200, Math.round((acs / 300) * 200));
+    const kdPts = Math.min(200, Math.round((kd / 1.5) * 200));
+    const hsPts = Math.min(200, Math.round((hsPercent / 35) * 200));
+    const formPts = 125;
+    const currIdx = getRankIndex(rank);
+    const peakIdx = getRankIndex(peakRank);
+    const gap = Math.max(0, peakIdx - currIdx);
+    const gapPts = Math.max(50, 150 - (gap * 15));
+    return acsPts + kdPts + hsPts + formPts + gapPts;
+}
+
 
 /**
  * Restores the HTML placeholders for the player lists and average stats.
@@ -176,7 +240,7 @@ function renderPostMatchSummary(summary, status) {
 
     const resultClass = summary.won ? 'victory' : 'defeat';
     const mapLabel = formatMapLabel(summary.map_id);
-    const queueLabel = summary.queue_id || 'Unknown queue';
+    const queueLabel = formatGameMode(summary.queue_id) || 'Unknown queue';
     const rrChange = Number(summary.rr_change || 0);
     const mapStyle = summary.map_banner_url ? ` style="background-image: url('${escapeHtml(summary.map_banner_url)}')"` : '';
     const rankupHtml = summary.rankup ? `
@@ -372,48 +436,154 @@ async function importCompetitiveHistory() {
  *
  * @param {Object} career Career payload.
  */
-function renderCareer(career) {
+/**
+ * Applies the career game mode filter and updates the UI accordingly.
+ */
+function applyCareerFilter() {
+    if (!lastCareerData) return;
+    
+    const filterSelect = document.getElementById('career-mode-filter');
+    const activeFilter = filterSelect ? filterSelect.value : 'all';
+    
     const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) {
             el.textContent = value;
         }
     };
-
-    const rrDelta = Number(career.rr_delta || 0);
-    setText('career-player', career.player_name || 'No account loaded');
-    setText('career-matches', career.matches || 0);
-    setText('career-winrate', `${Number(career.win_rate || 0).toFixed(1)}%`);
-    setText('career-kd', Number(career.avg_kd || 0).toFixed(2));
-    setText('career-hs', `${Number(career.avg_hs_percent || 0).toFixed(1)}%`);
-    setText('career-acs', career.avg_acs || 0);
-    setText('career-score', career.tracker_score || 0);
-    setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
-
+    
+    const matches = lastCareerData.recent_matches || [];
+    
+    // Filter matches
+    const filteredMatches = matches.filter(match => {
+        if (activeFilter === 'all') return true;
+        return (match.gamemode || '').trim().toLowerCase() === activeFilter;
+    });
+    
+    // Update Stats Card Grid
+    if (activeFilter === 'all') {
+        const rrDelta = Number(lastCareerData.rr_delta || 0);
+        setText('career-player', lastCareerData.player_name || 'No account loaded');
+        setText('career-matches', lastCareerData.matches || 0);
+        setText('career-winrate', `${Number(lastCareerData.win_rate || 0).toFixed(1)}%`);
+        setText('career-kd', Number(lastCareerData.avg_kd || 0).toFixed(2));
+        setText('career-hs', `${Number(lastCareerData.avg_hs_percent || 0).toFixed(1)}%`);
+        setText('career-acs', lastCareerData.avg_acs || 0);
+        setText('career-score', lastCareerData.tracker_score || 0);
+        setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
+    } else {
+        const count = filteredMatches.length;
+        let wins = 0;
+        let rrDelta = 0;
+        let totalACS = 0;
+        let totalKD = 0;
+        let totalHS = 0;
+        
+        filteredMatches.forEach(m => {
+            if (m.win_loss === 'WIN' || m.won) {
+                wins++;
+            }
+            rrDelta += Number(m.rr_change || 0);
+            totalACS += Number(m.acs || 0);
+            totalKD += Number(m.kd || 0);
+            totalHS += Number(m.hs_percent || 0);
+        });
+        
+        const winRate = count ? ((wins / count) * 100).toFixed(1) : '0.0';
+        const avgACS = count ? Math.round(totalACS / count) : 0;
+        const avgKD = count ? (totalKD / count).toFixed(2) : '0.00';
+        const avgHS = count ? (totalHS / count).toFixed(1) : '0.0';
+        
+        let trackerScore = 0;
+        if (count) {
+            const currentRank = lastCareerData.current_rank || 'Unranked';
+            trackerScore = calculateTrackerScore(Number(avgKD), Number(avgHS), avgACS, currentRank, currentRank);
+        }
+        
+        setText('career-player', lastCareerData.player_name || 'No account loaded');
+        setText('career-matches', count);
+        setText('career-winrate', `${winRate}%`);
+        setText('career-kd', avgKD);
+        setText('career-hs', `${avgHS}%`);
+        setText('career-acs', avgACS);
+        setText('career-score', trackerScore);
+        setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
+    }
+    
+    // Update player rank in UI
     const rankEl = document.getElementById('career-rank');
     if (rankEl) {
         rankEl.innerHTML = `
-            ${renderImage(career.current_rank_icon_url, career.current_rank || 'Rank')}
-            <span class="career-rank-name">${escapeHtml(career.current_rank || 'Unranked')}</span>
+            ${renderImage(lastCareerData.current_rank_icon_url, lastCareerData.current_rank || 'Rank')}
+            <span class="career-rank-name">${escapeHtml(lastCareerData.current_rank || 'Unranked')}</span>
         `;
     }
-
+    
+    // Update History List
     const historyEl = document.getElementById('career-history');
-    if (!historyEl) {
-        return;
-    }
-
-    const matches = career.recent_matches || [];
-    if (matches.length === 0) {
+    if (!historyEl) return;
+    
+    if (filteredMatches.length === 0) {
         historyEl.innerHTML = `
             <div class="empty-state-card">
-                <span class="empty-state-text">No saved matches yet</span>
+                <span class="empty-state-text">No matches found for this mode</span>
             </div>
         `;
-        return;
+    } else {
+        historyEl.innerHTML = filteredMatches.map(match => renderCareerMatch(match)).join('');
     }
+}
 
-    historyEl.innerHTML = matches.map(match => renderCareerMatch(match)).join('');
+/**
+ * Renders career aggregate stats and match history.
+ *
+ * @param {Object} career Career payload.
+ */
+function renderCareer(career) {
+    lastCareerData = career;
+    
+    // 1. Gather unique modes from the recent matches to populate the filter dropdown
+    const uniqueModes = new Set();
+    const matches = career.recent_matches || [];
+    matches.forEach(match => {
+        if (match.gamemode) {
+            uniqueModes.add(match.gamemode.trim().toLowerCase());
+        }
+    });
+
+    const filterSelect = document.getElementById('career-mode-filter');
+    if (filterSelect) {
+        const previousSelection = filterSelect.value || 'all';
+        
+        // Rebuild select options only if the unique modes list has changed
+        const currentOptions = Array.from(filterSelect.options).map(o => o.value);
+        const newOptions = ['all', ...Array.from(uniqueModes).sort()];
+        
+        if (JSON.stringify(currentOptions) !== JSON.stringify(newOptions)) {
+            filterSelect.innerHTML = '';
+            
+            const allOpt = document.createElement('option');
+            allOpt.value = 'all';
+            allOpt.textContent = 'ALL MODES';
+            filterSelect.appendChild(allOpt);
+            
+            Array.from(uniqueModes).sort().forEach(mode => {
+                const opt = document.createElement('option');
+                opt.value = mode;
+                opt.textContent = formatGameMode(mode);
+                filterSelect.appendChild(opt);
+            });
+        }
+        
+        if (newOptions.includes(previousSelection)) {
+            filterSelect.value = previousSelection;
+        } else {
+            filterSelect.value = 'all';
+        }
+    }
+    
+    // 2. Apply the current filter and render stats & history
+    applyCareerFilter();
 }
 
 /**
@@ -449,7 +619,7 @@ function renderCareerMatch(match) {
             <div class="career-match-body">
                 <div class="career-match-main">
                     <span class="career-match-result ${resultClass}">${resultText}</span>
-                    <span class="career-match-meta">${escapeHtml(match.map_name || formatMapLabel(match.map || match.map_id))} · ${escapeHtml(match.gamemode || '')} · ${rr >= 0 ? '+' : ''}${rr} RR</span>
+                    <span class="career-match-meta">${escapeHtml(match.map_name || formatMapLabel(match.map || match.map_id))} · ${escapeHtml(formatGameMode(match.gamemode))} · ${rr >= 0 ? '+' : ''}${rr} RR</span>
                     ${rankHtml}
                 </div>
                 <div class="career-match-agent">
@@ -519,10 +689,10 @@ function updateConnectionUI(data) {
             if (mapLower.includes('range') || mapLower.includes('poveglia')) {
                 statusString = 'VALORANT: IN THE RANGE';
             } else if (data.queue_id) {
-                statusString = `VALORANT: ${data.game_phase} (${data.queue_id})`;
+                statusString = `VALORANT: ${data.game_phase} (${formatGameMode(data.queue_id)})`;
             }
         } else if (data.queue_id) {
-            statusString = `VALORANT: ${data.game_phase} (${data.queue_id})`;
+            statusString = `VALORANT: ${data.game_phase} (${formatGameMode(data.queue_id)})`;
         }
         text.textContent = statusString;
         
@@ -645,6 +815,10 @@ function init() {
     const importButton = document.getElementById('career-import-button');
     if (importButton) {
         importButton.addEventListener('click', importCompetitiveHistory);
+    }
+    const filterSelect = document.getElementById('career-mode-filter');
+    if (filterSelect) {
+        filterSelect.addEventListener('change', applyCareerFilter);
     }
     fetchSessionStatus();
     setInterval(fetchSessionStatus, 3000);
