@@ -203,13 +203,34 @@ class DatabaseManager:
         try:
             cursor = conn.execute(
                 """
-                INSERT OR IGNORE INTO my_matches (
+                INSERT INTO my_matches (
                     puuid, player_name, match_id, date, gamemode, map, agent,
                     win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
                     assists, score, kda, rank_before, rank_after, rankup,
                     rr_before, rr_after
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(puuid, match_id) DO UPDATE SET
+                    player_name = excluded.player_name,
+                    date = excluded.date,
+                    gamemode = excluded.gamemode,
+                    map = excluded.map,
+                    agent = excluded.agent,
+                    win_loss = excluded.win_loss,
+                    rr_change = excluded.rr_change,
+                    acs = excluded.acs,
+                    kd = excluded.kd,
+                    hs_percent = excluded.hs_percent,
+                    kills = excluded.kills,
+                    deaths = excluded.deaths,
+                    assists = excluded.assists,
+                    score = excluded.score,
+                    kda = excluded.kda,
+                    rank_before = excluded.rank_before,
+                    rank_after = excluded.rank_after,
+                    rankup = excluded.rankup,
+                    rr_before = excluded.rr_before,
+                    rr_after = excluded.rr_after
                 """,
                 (
                     match_data.get("puuid"),
@@ -276,6 +297,24 @@ class DatabaseManager:
             "losses": int(row["losses"] or 0),
             "rr_delta": int(row["rr_delta"] or 0)
         }
+
+    def match_exists(self, puuid: str, match_id: str) -> bool:
+        """
+        Checks whether a match is already saved for a specific account.
+
+        @param puuid: Account PUUID.
+        @param match_id: Riot match id.
+        @return: True when the row already exists.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM my_matches WHERE puuid = ? AND match_id = ? LIMIT 1",
+                (puuid, match_id)
+            ).fetchone()
+        finally:
+            conn.close()
+        return row is not None
 
     def get_career_summary(self, puuid: str, limit: int = 20) -> dict:
         """

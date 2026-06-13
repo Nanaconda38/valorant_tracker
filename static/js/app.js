@@ -333,6 +333,41 @@ async function fetchCareer() {
 }
 
 /**
+ * Imports recent competitive matches into the local database.
+ */
+async function importCompetitiveHistory() {
+    const button = document.getElementById('career-import-button');
+    const status = document.getElementById('career-import-status');
+    if (button) {
+        button.disabled = true;
+    }
+    if (status) {
+        status.textContent = 'Importing...';
+    }
+
+    try {
+        const response = await fetch('/api/backfill/competitive?limit=20', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'ok') {
+            throw new Error(result.message || 'Import failed');
+        }
+        if (status) {
+            status.textContent = `${result.imported} imported · ${result.updated || 0} updated · ${result.skipped} skipped`;
+        }
+        updateSessionWidget(result.session_summary);
+        await fetchCareer();
+    } catch (error) {
+        if (status) {
+            status.textContent = 'Import failed';
+        }
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
+}
+
+/**
  * Renders career aggregate stats and match history.
  *
  * @param {Object} career Career payload.
@@ -607,6 +642,10 @@ function renderPlayerList(players, isAllies) {
  * Initializes the dashboard application.
  */
 function init() {
+    const importButton = document.getElementById('career-import-button');
+    if (importButton) {
+        importButton.addEventListener('click', importCompetitiveHistory);
+    }
     fetchSessionStatus();
     setInterval(fetchSessionStatus, 3000);
 }

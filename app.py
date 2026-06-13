@@ -290,6 +290,19 @@ def _number_or_zero(value) -> float:
         return 0
 
 
+def iso_from_riot_millis(value) -> str:
+    """
+    Converts Riot millisecond timestamps to an ISO UTC datetime.
+
+    @param value: Riot timestamp in milliseconds.
+    @return: ISO datetime string.
+    """
+    milliseconds = _number_or_zero(value)
+    if milliseconds <= 0:
+        return datetime.now(timezone.utc).isoformat()
+    return datetime.fromtimestamp(milliseconds / 1000, timezone.utc).isoformat()
+
+
 def start_tracking_match(match_id: str) -> None:
     """
     Stores the active match id and clears the previous post-match summary.
@@ -340,10 +353,19 @@ def build_post_match_summary(match_data: dict, puuid: str) -> dict | None:
     headshots = 0
     bodyshots = 0
     legshots = 0
-    for damage in player.get("roundDamage", []) or player.get("RoundDamage", []) or []:
-        headshots += int(_number_or_zero(damage.get("headshots") or damage.get("Headshots")))
-        bodyshots += int(_number_or_zero(damage.get("bodyshots") or damage.get("Bodyshots")))
-        legshots += int(_number_or_zero(damage.get("legshots") or damage.get("Legshots")))
+    for round_result in match_data.get("roundResults", []) or match_data.get("RoundResults", []) or []:
+        for player_stats in round_result.get("playerStats", []) or round_result.get("PlayerStats", []) or []:
+            if player_stats.get("subject") != puuid and player_stats.get("Subject") != puuid:
+                continue
+            for damage in player_stats.get("damage", []) or player_stats.get("Damage", []) or []:
+                headshots += int(_number_or_zero(damage.get("headshots") or damage.get("Headshots")))
+                bodyshots += int(_number_or_zero(damage.get("bodyshots") or damage.get("Bodyshots")))
+                legshots += int(_number_or_zero(damage.get("legshots") or damage.get("Legshots")))
+    if headshots + bodyshots + legshots == 0:
+        for damage in player.get("roundDamage", []) or player.get("RoundDamage", []) or []:
+            headshots += int(_number_or_zero(damage.get("headshots") or damage.get("Headshots")))
+            bodyshots += int(_number_or_zero(damage.get("bodyshots") or damage.get("Bodyshots")))
+            legshots += int(_number_or_zero(damage.get("legshots") or damage.get("Legshots")))
     total_shots = headshots + bodyshots + legshots
     hs_percent = round((headshots / total_shots) * 100, 1) if total_shots > 0 else 0.0
 
@@ -538,6 +560,65 @@ async def fetch_mmr_update(
     return extract_mmr_update({}, match_id)
 
 
+async def get_riot_remote_context(client: httpx.AsyncClient, local_url: str, local_headers: dict) -> dict | None:
+    """
+    Builds Riot PD/GLZ authentication context from the local client.
+
+    @param client: HTTP client.
+    @param local_url: Local Riot client base URL.
+    @param local_headers: Local auth headers.
+    @return: Context dictionary or None when auth fails.
+    """
+    session_resp = await client.get(f"{local_url}/chat/v1/session", headers=local_headers)
+    if session_resp.status_code != 200:
+        return None
+
+    session_data = session_resp.json()
+    puuid = session_data.get("puuid", "")
+    token_resp = await client.get(f"{local_url}/entitlements/v1/token", headers=local_headers)
+    if token_resp.status_code != 200:
+        return None
+
+    token_data = token_resp.json()
+    access_token = token_data.get("accessToken")
+    entitlements_token = token_data.get("token")
+    client_version = "release-12.11-shipping-9-4815575"
+    pres_resp = await client.get(f"{local_url}/chat/v4/presences", headers=local_headers)
+    if pres_resp.status_code == 200:
+        for pres in pres_resp.json().get("presences", []):
+            if pres.get("puuid") == puuid and pres.get("private"):
+                try:
+                    decoded = base64.b64decode(pres["private"]).decode("utf-8")
+                    priv_data = json.loads(decoded)
+                    p_ver = priv_data.get("partyPresenceData", {}).get("partyClientVersion")
+                    if p_ver:
+                        client_version = p_ver
+                        break
+                except Exception:
+                    pass
+
+    remote_headers = {
+        "Authorization": f"Bearer {access_token}",
+        "X-Riot-Entitlements-JWT": entitlements_token,
+        "X-Riot-ClientVersion": client_version,
+        "X-Riot-ClientPlatform": "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIndpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogInVua25vd24iDQp9",
+        "Accept": "application/json"
+    }
+    l_region = session_data.get("region", "eu1")
+    glz_region, shard = get_region_shard(l_region)
+    game_name = session_data.get("game_name", "")
+    game_tag = session_data.get("game_tag", "")
+    return {
+        "session": session_data,
+        "puuid": puuid,
+        "player_name": f"{game_name}#{game_tag}",
+        "remote_headers": remote_headers,
+        "pd_url": f"https://pd.{shard}.a.pvp.net",
+        "glz_url": f"https://glz-{glz_region}-1.{shard}.a.pvp.net",
+        "shard": shard
+    }
+
+
 def refresh_session_summary() -> None:
     """
     Updates the in-memory session widget state from SQLite.
@@ -566,7 +647,7 @@ def persist_completed_match(summary: dict, puuid: str, player_name: str) -> bool
         "puuid": puuid,
         "player_name": player_name,
         "match_id": match_id,
-        "date": datetime.now(timezone.utc).isoformat(),
+        "date": summary.get("date") or datetime.now(timezone.utc).isoformat(),
         "gamemode": summary.get("queue_id", ""),
         "map": summary.get("map_id", ""),
         "agent": summary.get("agent", ""),
@@ -1053,6 +1134,133 @@ async def get_career() -> dict:
         current_rank or "Unranked"
     ) if career["matches"] else 0
     return career
+
+
+@app.post("/api/backfill/competitive")
+async def backfill_competitive(limit: int = 20) -> dict:
+    """
+    Imports recent competitive matches for the current account from Riot PD.
+
+    @param limit: Maximum number of competitive matches to import.
+    @return: Import summary.
+    """
+    from lockfile_scanner import LockfileScanner
+    scanner = LockfileScanner()
+    lockfile_info = scanner.scan()
+    if not lockfile_info:
+        return {
+            "status": "error",
+            "message": "Lockfile not found. Open Valorant before importing."
+        }
+
+    limit = max(1, min(int(limit or 20), 50))
+    local_url = f"{lockfile_info['protocol']}://127.0.0.1:{lockfile_info['port']}"
+    local_headers = lockfile_info["headers"]
+    imported = []
+    updated = []
+    skipped = []
+    failed = []
+
+    async with httpx.AsyncClient(verify=False, timeout=12.0) as client:
+        context = await get_riot_remote_context(client, local_url, local_headers)
+        if not context:
+            return {
+                "status": "error",
+                "message": "Unable to authenticate with Riot local client."
+            }
+
+        puuid = context["puuid"]
+        player_name = context["player_name"]
+        pd_url = context["pd_url"]
+        remote_headers = context["remote_headers"]
+
+        previous_puuid = tracker_state.get("puuid", "")
+        tracker_state["puuid"] = puuid
+        tracker_state["player_name"] = player_name
+        tracker_state["status"] = "connected"
+        if previous_puuid != puuid:
+            refresh_session_summary()
+
+        updates = []
+        max_scan = min(100, max(20, limit * 5))
+        page_size = 20
+        for start_index in range(0, max_scan, page_size):
+            end_index = start_index + page_size
+            updates_resp = await client.get(
+                f"{pd_url}/mmr/v1/players/{puuid}/competitiveupdates?startIndex={start_index}&endIndex={end_index}",
+                headers=remote_headers
+            )
+            if updates_resp.status_code != 200:
+                return {
+                    "status": "error",
+                    "message": f"Riot MMR updates returned {updates_resp.status_code}.",
+                    "body": updates_resp.text[:300],
+                    "start_index": start_index,
+                    "end_index": end_index
+                }
+            page_matches = updates_resp.json().get("Matches", [])
+            if not page_matches:
+                break
+            updates.extend(page_matches)
+            competitive_seen = sum(
+                1 for update in updates
+                if isinstance(update, dict) and update.get("QueueID") == "competitive" and update.get("MatchID")
+            )
+            if competitive_seen >= limit:
+                break
+
+        competitive_updates = [
+            update for update in updates
+            if isinstance(update, dict) and update.get("QueueID") == "competitive" and update.get("MatchID")
+        ][:limit]
+
+        for update in competitive_updates:
+            match_id = update["MatchID"]
+            existed_before = db_manager.match_exists(puuid, match_id)
+
+            summary = await fetch_post_match_summary(client, pd_url, match_id, puuid, remote_headers)
+            if not summary:
+                failed.append({"match_id": match_id, "reason": "match_details_unavailable"})
+                continue
+
+            summary.update(extract_mmr_update({"Matches": [update]}, match_id))
+            summary["date"] = iso_from_riot_millis(update.get("MatchStartTime"))
+            enrich_match_assets(summary)
+            inserted = persist_completed_match(summary, puuid, player_name)
+            if inserted and existed_before:
+                updated.append({
+                    "match_id": match_id,
+                    "rr_change": summary.get("rr_change", 0),
+                    "hs_percent": summary.get("hs_percent", 0)
+                })
+            elif inserted:
+                imported.append({
+                    "match_id": match_id,
+                    "rr_change": summary.get("rr_change", 0),
+                    "rank_before": summary.get("rank_before", ""),
+                    "rank_after": summary.get("rank_after", ""),
+                    "rankup": summary.get("rankup", False)
+                })
+            else:
+                skipped.append({"match_id": match_id, "reason": "already_saved"})
+
+    refresh_session_summary()
+    return {
+        "status": "ok",
+        "puuid": tracker_state.get("puuid", ""),
+        "player_name": tracker_state.get("player_name", "Unknown"),
+        "requested_limit": limit,
+        "competitive_found": len(competitive_updates),
+        "imported": len(imported),
+        "updated": len(updated),
+        "skipped": len(skipped),
+        "failed": len(failed),
+        "imported_matches": imported,
+        "updated_matches": updated[:10],
+        "skipped_matches": skipped[:10],
+        "failed_matches": failed[:10],
+        "session_summary": tracker_state.get("session_summary", {})
+    }
 
 
 @app.get("/api/debug/lcu")

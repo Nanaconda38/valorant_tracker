@@ -770,6 +770,39 @@ h1#app-title .sub-logo {
     gap: 0.5rem;
 }
 
+.career-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+
+.career-import-button {
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    border-radius: 6px;
+    color: var(--valorant-blue);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 0.45rem 0.7rem;
+    text-transform: uppercase;
+}
+
+.career-import-button:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
+.career-import-status {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
 .career-rank img {
     height: 34px;
     object-fit: contain;
@@ -914,6 +947,11 @@ h1#app-title .sub-logo {
     .career-header {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .career-actions {
+        align-items: flex-start;
+        justify-content: flex-start;
     }
 
     .career-summary-grid {
