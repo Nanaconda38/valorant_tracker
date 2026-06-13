@@ -1,0 +1,636 @@
+{
+  "agents": {
+    "gekko": {
+      "name": "Gekko",
+      "uuid": "e370fa57-4757-3604-3648-499e1f642d3f",
+      "icon": "/static/assets/valorant/agents/gekko-icon.png",
+      "full": "/static/assets/valorant/agents/gekko-full.png",
+      "small": "/static/assets/valorant/agents/gekko-small.png"
+    },
+    "fade": {
+      "name": "Fade",
+      "uuid": "dade69b4-4f5a-8528-247b-219e5a1facd6",
+      "icon": "/static/assets/valorant/agents/fade-icon.png",
+      "full": "/static/assets/valorant/agents/fade-full.png",
+      "small": "/static/assets/valorant/agents/fade-small.png"
+    },
+    "breach": {
+      "name": "Breach",
+      "uuid": "5f8d3a7f-467b-97f3-062c-13acf203c006",
+      "icon": "/static/assets/valorant/agents/breach-icon.png",
+      "full": "/static/assets/valorant/agents/breach-full.png",
+      "small": "/static/assets/valorant/agents/breach-small.png"
+    },
+    "deadlock": {
+      "name": "Deadlock",
+      "uuid": "cc8b64c8-4b25-4ff9-6e7f-37b4da43d235",
+      "icon": "/static/assets/valorant/agents/deadlock-icon.png",
+      "full": "/static/assets/valorant/agents/deadlock-full.png",
+      "small": "/static/assets/valorant/agents/deadlock-small.png"
+    },
+    "tejo": {
+      "name": "Tejo",
+      "uuid": "b444168c-4e35-8076-db47-ef9bf368f384",
+      "icon": "/static/assets/valorant/agents/tejo-icon.png",
+      "full": "/static/assets/valorant/agents/tejo-full.png",
+      "small": "/static/assets/valorant/agents/tejo-small.png"
+    },
+    "raze": {
+      "name": "Raze",
+      "uuid": "f94c3b30-42be-e959-889c-5aa313dba261",
+      "icon": "/static/assets/valorant/agents/raze-icon.png",
+      "full": "/static/assets/valorant/agents/raze-full.png",
+      "small": "/static/assets/valorant/agents/raze-small.png"
+    },
+    "chamber": {
+      "name": "Chamber",
+      "uuid": "22697a3d-45bf-8dd7-4fec-84a9e28c69d7",
+      "icon": "/static/assets/valorant/agents/chamber-icon.png",
+      "full": "/static/assets/valorant/agents/chamber-full.png",
+      "small": "/static/assets/valorant/agents/chamber-small.png"
+    },
+    "kay/o": {
+      "name": "KAY/O",
+      "uuid": "601dbbe7-43ce-be57-2a40-4abd24953621",
+      "icon": "/static/assets/valorant/agents/kay-o-icon.png",
+      "full": "/static/assets/valorant/agents/kay-o-full.png",
+      "small": "/static/assets/valorant/agents/kay-o-small.png"
+    },
+    "skye": {
+      "name": "Skye",
+      "uuid": "6f2a04ca-43e0-be17-7f36-b3908627744d",
+      "icon": "/static/assets/valorant/agents/skye-icon.png",
+      "full": "/static/assets/valorant/agents/skye-full.png",
+      "small": "/static/assets/valorant/agents/skye-small.png"
+    },
+    "cypher": {
+      "name": "Cypher",
+      "uuid": "117ed9e3-49f3-6512-3ccf-0cada7e3823b",
+      "icon": "/static/assets/valorant/agents/cypher-icon.png",
+      "full": "/static/assets/valorant/agents/cypher-full.png",
+      "small": "/static/assets/valorant/agents/cypher-small.png"
+    },
+    "sova": {
+      "name": "Sova",
+      "uuid": "320b2a48-4d9b-a075-30f1-1f93a9b638fa",
+      "icon": "/static/assets/valorant/agents/sova-icon.png",
+      "full": "/static/assets/valorant/agents/sova-full.png",
+      "small": "/static/assets/valorant/agents/sova-small.png"
+    },
+    "miks": {
+      "name": "Miks",
+      "uuid": "7c8a4701-4de6-9355-b254-e09bc2a34b72",
+      "icon": "/static/assets/valorant/agents/miks-icon.png",
+      "full": "/static/assets/valorant/agents/miks-full.png",
+      "small": "/static/assets/valorant/agents/miks-small.png"
+    },
+    "killjoy": {
+      "name": "Killjoy",
+      "uuid": "1e58de9c-4950-5125-93e9-a0aee9f98746",
+      "icon": "/static/assets/valorant/agents/killjoy-icon.png",
+      "full": "/static/assets/valorant/agents/killjoy-full.png",
+      "small": "/static/assets/valorant/agents/killjoy-small.png"
+    },
+    "harbor": {
+      "name": "Harbor",
+      "uuid": "95b78ed7-4637-86d9-7e41-71ba8c293152",
+      "icon": "/static/assets/valorant/agents/harbor-icon.png",
+      "full": "/static/assets/valorant/agents/harbor-full.png",
+      "small": "/static/assets/valorant/agents/harbor-small.png"
+    },
+    "vyse": {
+      "name": "Vyse",
+      "uuid": "efba5359-4016-a1e5-7626-b1ae76895940",
+      "icon": "/static/assets/valorant/agents/vyse-icon.png",
+      "full": "/static/assets/valorant/agents/vyse-full.png",
+      "small": "/static/assets/valorant/agents/vyse-small.png"
+    },
+    "viper": {
+      "name": "Viper",
+      "uuid": "707eab51-4836-f488-046a-cda6bf494859",
+      "icon": "/static/assets/valorant/agents/viper-icon.png",
+      "full": "/static/assets/valorant/agents/viper-full.png",
+      "small": "/static/assets/valorant/agents/viper-small.png"
+    },
+    "phoenix": {
+      "name": "Phoenix",
+      "uuid": "eb93336a-449b-9c1b-0a54-a891f7921d69",
+      "icon": "/static/assets/valorant/agents/phoenix-icon.png",
+      "full": "/static/assets/valorant/agents/phoenix-full.png",
+      "small": "/static/assets/valorant/agents/phoenix-small.png"
+    },
+    "veto": {
+      "name": "Veto",
+      "uuid": "92eeef5d-43b5-1d4a-8d03-b3927a09034b",
+      "icon": "/static/assets/valorant/agents/veto-icon.png",
+      "full": "/static/assets/valorant/agents/veto-full.png",
+      "small": "/static/assets/valorant/agents/veto-small.png"
+    },
+    "astra": {
+      "name": "Astra",
+      "uuid": "41fb69c1-4189-7b37-f117-bcaf1e96f1bf",
+      "icon": "/static/assets/valorant/agents/astra-icon.png",
+      "full": "/static/assets/valorant/agents/astra-full.png",
+      "small": "/static/assets/valorant/agents/astra-small.png"
+    },
+    "brimstone": {
+      "name": "Brimstone",
+      "uuid": "9f0d8ba9-4140-b941-57d3-a7ad57c6b417",
+      "icon": "/static/assets/valorant/agents/brimstone-icon.png",
+      "full": "/static/assets/valorant/agents/brimstone-full.png",
+      "small": "/static/assets/valorant/agents/brimstone-small.png"
+    },
+    "iso": {
+      "name": "Iso",
+      "uuid": "0e38b510-41a8-5780-5e8f-568b2a4f2d6c",
+      "icon": "/static/assets/valorant/agents/iso-icon.png",
+      "full": "/static/assets/valorant/agents/iso-full.png",
+      "small": "/static/assets/valorant/agents/iso-small.png"
+    },
+    "clove": {
+      "name": "Clove",
+      "uuid": "1dbf2edd-4729-0984-3115-daa5eed44993",
+      "icon": "/static/assets/valorant/agents/clove-icon.png",
+      "full": "/static/assets/valorant/agents/clove-full.png",
+      "small": "/static/assets/valorant/agents/clove-small.png"
+    },
+    "neon": {
+      "name": "Neon",
+      "uuid": "bb2a4828-46eb-8cd1-e765-15848195d751",
+      "icon": "/static/assets/valorant/agents/neon-icon.png",
+      "full": "/static/assets/valorant/agents/neon-full.png",
+      "small": "/static/assets/valorant/agents/neon-small.png"
+    },
+    "yoru": {
+      "name": "Yoru",
+      "uuid": "7f94d92c-4234-0a36-9646-3a87eb8b5c89",
+      "icon": "/static/assets/valorant/agents/yoru-icon.png",
+      "full": "/static/assets/valorant/agents/yoru-full.png",
+      "small": "/static/assets/valorant/agents/yoru-small.png"
+    },
+    "waylay": {
+      "name": "Waylay",
+      "uuid": "df1cb487-4902-002e-5c17-d28e83e78588",
+      "icon": "/static/assets/valorant/agents/waylay-icon.png",
+      "full": "/static/assets/valorant/agents/waylay-full.png",
+      "small": "/static/assets/valorant/agents/waylay-small.png"
+    },
+    "sage": {
+      "name": "Sage",
+      "uuid": "569fdd95-4d10-43ab-ca70-79becc718b46",
+      "icon": "/static/assets/valorant/agents/sage-icon.png",
+      "full": "/static/assets/valorant/agents/sage-full.png",
+      "small": "/static/assets/valorant/agents/sage-small.png"
+    },
+    "reyna": {
+      "name": "Reyna",
+      "uuid": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc",
+      "icon": "/static/assets/valorant/agents/reyna-icon.png",
+      "full": "/static/assets/valorant/agents/reyna-full.png",
+      "small": "/static/assets/valorant/agents/reyna-small.png"
+    },
+    "omen": {
+      "name": "Omen",
+      "uuid": "8e253930-4c05-31dd-1b6c-968525494517",
+      "icon": "/static/assets/valorant/agents/omen-icon.png",
+      "full": "/static/assets/valorant/agents/omen-full.png",
+      "small": "/static/assets/valorant/agents/omen-small.png"
+    },
+    "jett": {
+      "name": "Jett",
+      "uuid": "add6443a-41bd-e414-f6ad-e58d267f4e95",
+      "icon": "/static/assets/valorant/agents/jett-icon.png",
+      "full": "/static/assets/valorant/agents/jett-full.png",
+      "small": "/static/assets/valorant/agents/jett-small.png"
+    }
+  },
+  "agent_aliases": {
+    "e370fa57-4757-3604-3648-499e1f642d3f": "gekko",
+    "dade69b4-4f5a-8528-247b-219e5a1facd6": "fade",
+    "5f8d3a7f-467b-97f3-062c-13acf203c006": "breach",
+    "cc8b64c8-4b25-4ff9-6e7f-37b4da43d235": "deadlock",
+    "b444168c-4e35-8076-db47-ef9bf368f384": "tejo",
+    "f94c3b30-42be-e959-889c-5aa313dba261": "raze",
+    "22697a3d-45bf-8dd7-4fec-84a9e28c69d7": "chamber",
+    "601dbbe7-43ce-be57-2a40-4abd24953621": "kay/o",
+    "6f2a04ca-43e0-be17-7f36-b3908627744d": "skye",
+    "117ed9e3-49f3-6512-3ccf-0cada7e3823b": "cypher",
+    "320b2a48-4d9b-a075-30f1-1f93a9b638fa": "sova",
+    "7c8a4701-4de6-9355-b254-e09bc2a34b72": "miks",
+    "1e58de9c-4950-5125-93e9-a0aee9f98746": "killjoy",
+    "95b78ed7-4637-86d9-7e41-71ba8c293152": "harbor",
+    "efba5359-4016-a1e5-7626-b1ae76895940": "vyse",
+    "707eab51-4836-f488-046a-cda6bf494859": "viper",
+    "eb93336a-449b-9c1b-0a54-a891f7921d69": "phoenix",
+    "92eeef5d-43b5-1d4a-8d03-b3927a09034b": "veto",
+    "41fb69c1-4189-7b37-f117-bcaf1e96f1bf": "astra",
+    "9f0d8ba9-4140-b941-57d3-a7ad57c6b417": "brimstone",
+    "0e38b510-41a8-5780-5e8f-568b2a4f2d6c": "iso",
+    "1dbf2edd-4729-0984-3115-daa5eed44993": "clove",
+    "bb2a4828-46eb-8cd1-e765-15848195d751": "neon",
+    "7f94d92c-4234-0a36-9646-3a87eb8b5c89": "yoru",
+    "df1cb487-4902-002e-5c17-d28e83e78588": "waylay",
+    "569fdd95-4d10-43ab-ca70-79becc718b46": "sage",
+    "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc": "reyna",
+    "8e253930-4c05-31dd-1b6c-968525494517": "omen",
+    "add6443a-41bd-e414-f6ad-e58d267f4e95": "jett"
+  },
+  "maps": {
+    "ascent": {
+      "name": "Ascent",
+      "uuid": "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319",
+      "map_url": "/Game/Maps/Ascent/Ascent",
+      "banner": "/static/assets/valorant/maps/ascent-banner.png",
+      "list": "/static/assets/valorant/maps/ascent-list.png",
+      "icon": "/static/assets/valorant/maps/ascent-icon.png"
+    },
+    "split": {
+      "name": "Split",
+      "uuid": "d960549e-485c-e861-8d71-aa9d1aed12a2",
+      "map_url": "/Game/Maps/Bonsai/Bonsai",
+      "banner": "/static/assets/valorant/maps/split-banner.png",
+      "list": "/static/assets/valorant/maps/split-list.png",
+      "icon": "/static/assets/valorant/maps/split-icon.png"
+    },
+    "fracture": {
+      "name": "Fracture",
+      "uuid": "b529448b-4d60-346e-e89e-00a4c527a405",
+      "map_url": "/Game/Maps/Canyon/Canyon",
+      "banner": "/static/assets/valorant/maps/fracture-banner.png",
+      "list": "/static/assets/valorant/maps/fracture-list.png",
+      "icon": "/static/assets/valorant/maps/fracture-icon.png"
+    },
+    "bind": {
+      "name": "Bind",
+      "uuid": "2c9d57ec-4431-9c5e-2939-8f9ef6dd5cba",
+      "map_url": "/Game/Maps/Duality/Duality",
+      "banner": "/static/assets/valorant/maps/bind-banner.png",
+      "list": "/static/assets/valorant/maps/bind-list.png",
+      "icon": "/static/assets/valorant/maps/bind-icon.png"
+    },
+    "skirmish a": {
+      "name": "Skirmish A",
+      "uuid": "a9009649-421f-d5d5-f80c-0cbe02c125bb",
+      "map_url": "/Game/Maps/Duel/Duel_1/Skirmish_A",
+      "banner": "/static/assets/valorant/maps/skirmish-a-banner.png",
+      "list": "/static/assets/valorant/maps/skirmish-a-list.png"
+    },
+    "skirmish b": {
+      "name": "Skirmish B",
+      "uuid": "a38a3f9a-4042-844c-8970-a3ac2f7ce93d",
+      "map_url": "/Game/Maps/Duel/Duel_2/Skirmish_B",
+      "banner": "/static/assets/valorant/maps/skirmish-b-banner.png",
+      "list": "/static/assets/valorant/maps/skirmish-b-list.png"
+    },
+    "skirmish c": {
+      "name": "Skirmish C",
+      "uuid": "a264de0f-4a04-9c78-c97a-a6b192ce6e86",
+      "map_url": "/Game/Maps/Duel/Duel_3/Skirmish_C",
+      "banner": "/static/assets/valorant/maps/skirmish-c-banner.png",
+      "list": "/static/assets/valorant/maps/skirmish-c-list.png"
+    },
+    "skirmish e": {
+      "name": "Skirmish E",
+      "uuid": "4490f1d6-4818-bf5f-9b3a-9c9a8dbb52ed",
+      "map_url": "/Game/Maps/Duel/Duel_Heady/Skirmish_E",
+      "banner": "/static/assets/valorant/maps/skirmish-e-banner.png",
+      "list": "/static/assets/valorant/maps/skirmish-e-list.png"
+    },
+    "skirmish d": {
+      "name": "Skirmish D",
+      "uuid": "1c7555fc-4bc6-3b98-9674-789d47ef6c50",
+      "map_url": "/Game/Maps/Duel/Duel_Platform/Skirmish_D",
+      "banner": "/static/assets/valorant/maps/skirmish-d-banner.png",
+      "list": "/static/assets/valorant/maps/skirmish-d-list.png"
+    },
+    "breeze": {
+      "name": "Breeze",
+      "uuid": "2fb9a4fd-47b8-4e7d-a969-74b4046ebd53",
+      "map_url": "/Game/Maps/Foxtrot/Foxtrot",
+      "banner": "/static/assets/valorant/maps/breeze-banner.png",
+      "list": "/static/assets/valorant/maps/breeze-list.png",
+      "icon": "/static/assets/valorant/maps/breeze-icon.png"
+    },
+    "district": {
+      "name": "District",
+      "uuid": "690b3ed2-4dff-945b-8223-6da834e30d24",
+      "map_url": "/Game/Maps/HURM/HURM_Alley/HURM_Alley",
+      "banner": "/static/assets/valorant/maps/district-banner.png",
+      "list": "/static/assets/valorant/maps/district-list.png",
+      "icon": "/static/assets/valorant/maps/district-icon.png"
+    },
+    "kasbah": {
+      "name": "Kasbah",
+      "uuid": "12452a9d-48c3-0b02-e7eb-0381c3520404",
+      "map_url": "/Game/Maps/HURM/HURM_Bowl/HURM_Bowl",
+      "banner": "/static/assets/valorant/maps/kasbah-banner.png",
+      "list": "/static/assets/valorant/maps/kasbah-list.png",
+      "icon": "/static/assets/valorant/maps/kasbah-icon.png"
+    },
+    "drift": {
+      "name": "Drift",
+      "uuid": "2c09d728-42d5-30d8-43dc-96a05cc7ee9d",
+      "map_url": "/Game/Maps/HURM/HURM_Helix/HURM_Helix",
+      "banner": "/static/assets/valorant/maps/drift-banner.png",
+      "list": "/static/assets/valorant/maps/drift-list.png",
+      "icon": "/static/assets/valorant/maps/drift-icon.png"
+    },
+    "glitch": {
+      "name": "Glitch",
+      "uuid": "d6336a5a-428f-c591-98db-c8a291159134",
+      "map_url": "/Game/Maps/HURM/HURM_HighTide/HURM_HighTide",
+      "banner": "/static/assets/valorant/maps/glitch-banner.png",
+      "list": "/static/assets/valorant/maps/glitch-list.png",
+      "icon": "/static/assets/valorant/maps/glitch-icon.png"
+    },
+    "piazza": {
+      "name": "Piazza",
+      "uuid": "de28aa9b-4cbe-1003-320e-6cb3ec309557",
+      "map_url": "/Game/Maps/HURM/HURM_Yard/HURM_Yard",
+      "banner": "/static/assets/valorant/maps/piazza-banner.png",
+      "list": "/static/assets/valorant/maps/piazza-list.png",
+      "icon": "/static/assets/valorant/maps/piazza-icon.png"
+    },
+    "abyss": {
+      "name": "Abyss",
+      "uuid": "224b0a95-48b9-f703-1bd8-67aca101a61f",
+      "map_url": "/Game/Maps/Infinity/Infinity",
+      "banner": "/static/assets/valorant/maps/abyss-banner.png",
+      "list": "/static/assets/valorant/maps/abyss-list.png",
+      "icon": "/static/assets/valorant/maps/abyss-icon.png"
+    },
+    "lotus": {
+      "name": "Lotus",
+      "uuid": "2fe4ed3a-450a-948b-6d6b-e89a78e680a9",
+      "map_url": "/Game/Maps/Jam/Jam",
+      "banner": "/static/assets/valorant/maps/lotus-banner.png",
+      "list": "/static/assets/valorant/maps/lotus-list.png",
+      "icon": "/static/assets/valorant/maps/lotus-icon.png"
+    },
+    "sunset": {
+      "name": "Sunset",
+      "uuid": "92584fbe-486a-b1b2-9faa-39b0f486b498",
+      "map_url": "/Game/Maps/Juliett/Juliett",
+      "banner": "/static/assets/valorant/maps/sunset-banner.png",
+      "list": "/static/assets/valorant/maps/sunset-list.png",
+      "icon": "/static/assets/valorant/maps/sunset-icon.png"
+    },
+    "basic training": {
+      "name": "Basic Training",
+      "uuid": "1f10dab3-4294-3827-fa35-c2aa00213cf3",
+      "map_url": "/Game/Maps/NPEV2/NPEV2",
+      "banner": "/static/assets/valorant/maps/basic-training-banner.png",
+      "list": "/static/assets/valorant/maps/basic-training-list.png"
+    },
+    "pearl": {
+      "name": "Pearl",
+      "uuid": "fd267378-4d1d-484f-ff52-77821ed10dc2",
+      "map_url": "/Game/Maps/Pitt/Pitt",
+      "banner": "/static/assets/valorant/maps/pearl-banner.png",
+      "list": "/static/assets/valorant/maps/pearl-list.png",
+      "icon": "/static/assets/valorant/maps/pearl-icon.png"
+    },
+    "icebox": {
+      "name": "Icebox",
+      "uuid": "e2ad5c54-4114-a870-9641-8ea21279579a",
+      "map_url": "/Game/Maps/Port/Port",
+      "banner": "/static/assets/valorant/maps/icebox-banner.png",
+      "list": "/static/assets/valorant/maps/icebox-list.png",
+      "icon": "/static/assets/valorant/maps/icebox-icon.png"
+    },
+    "the range": {
+      "name": "The Range",
+      "uuid": "5914d1e0-40c4-cfdd-6b88-eba06347686c",
+      "map_url": "/Game/Maps/PovegliaV2/RangeV2",
+      "banner": "/static/assets/valorant/maps/the-range-banner.png",
+      "list": "/static/assets/valorant/maps/the-range-list.png"
+    },
+    "corrode": {
+      "name": "Corrode",
+      "uuid": "1c18ab1f-420d-0d8b-71d0-77ad3c439115",
+      "map_url": "/Game/Maps/Rook/Rook",
+      "banner": "/static/assets/valorant/maps/corrode-banner.png",
+      "list": "/static/assets/valorant/maps/corrode-list.png",
+      "icon": "/static/assets/valorant/maps/corrode-icon.png"
+    },
+    "haven": {
+      "name": "Haven",
+      "uuid": "2bee0dc9-4ffe-519b-1cbd-7fbe763a6047",
+      "map_url": "/Game/Maps/Triad/Triad",
+      "banner": "/static/assets/valorant/maps/haven-banner.png",
+      "list": "/static/assets/valorant/maps/haven-list.png",
+      "icon": "/static/assets/valorant/maps/haven-icon.png"
+    }
+  },
+  "ranks": {
+    "unranked": {
+      "name": "Unranked",
+      "tier": 0,
+      "color": "ffffffff",
+      "small": "/static/assets/valorant/ranks/unranked-small.png",
+      "large": "/static/assets/valorant/ranks/unranked-large.png"
+    },
+    "iron 1": {
+      "name": "Iron 1",
+      "tier": 3,
+      "color": "4f514fff",
+      "small": "/static/assets/valorant/ranks/iron-1-small.png",
+      "large": "/static/assets/valorant/ranks/iron-1-large.png"
+    },
+    "iron 2": {
+      "name": "Iron 2",
+      "tier": 4,
+      "color": "4f514fff",
+      "small": "/static/assets/valorant/ranks/iron-2-small.png",
+      "large": "/static/assets/valorant/ranks/iron-2-large.png"
+    },
+    "iron 3": {
+      "name": "Iron 3",
+      "tier": 5,
+      "color": "4f514fff",
+      "small": "/static/assets/valorant/ranks/iron-3-small.png",
+      "large": "/static/assets/valorant/ranks/iron-3-large.png"
+    },
+    "bronze 1": {
+      "name": "Bronze 1",
+      "tier": 6,
+      "color": "a5855dff",
+      "small": "/static/assets/valorant/ranks/bronze-1-small.png",
+      "large": "/static/assets/valorant/ranks/bronze-1-large.png"
+    },
+    "bronze 2": {
+      "name": "Bronze 2",
+      "tier": 7,
+      "color": "a5855dff",
+      "small": "/static/assets/valorant/ranks/bronze-2-small.png",
+      "large": "/static/assets/valorant/ranks/bronze-2-large.png"
+    },
+    "bronze 3": {
+      "name": "Bronze 3",
+      "tier": 8,
+      "color": "a5855dff",
+      "small": "/static/assets/valorant/ranks/bronze-3-small.png",
+      "large": "/static/assets/valorant/ranks/bronze-3-large.png"
+    },
+    "silver 1": {
+      "name": "Silver 1",
+      "tier": 9,
+      "color": "bbc2c2ff",
+      "small": "/static/assets/valorant/ranks/silver-1-small.png",
+      "large": "/static/assets/valorant/ranks/silver-1-large.png"
+    },
+    "silver 2": {
+      "name": "Silver 2",
+      "tier": 10,
+      "color": "bbc2c2ff",
+      "small": "/static/assets/valorant/ranks/silver-2-small.png",
+      "large": "/static/assets/valorant/ranks/silver-2-large.png"
+    },
+    "silver 3": {
+      "name": "Silver 3",
+      "tier": 11,
+      "color": "bbc2c2ff",
+      "small": "/static/assets/valorant/ranks/silver-3-small.png",
+      "large": "/static/assets/valorant/ranks/silver-3-large.png"
+    },
+    "gold 1": {
+      "name": "Gold 1",
+      "tier": 12,
+      "color": "eccf56ff",
+      "small": "/static/assets/valorant/ranks/gold-1-small.png",
+      "large": "/static/assets/valorant/ranks/gold-1-large.png"
+    },
+    "gold 2": {
+      "name": "Gold 2",
+      "tier": 13,
+      "color": "eccf56ff",
+      "small": "/static/assets/valorant/ranks/gold-2-small.png",
+      "large": "/static/assets/valorant/ranks/gold-2-large.png"
+    },
+    "gold 3": {
+      "name": "Gold 3",
+      "tier": 14,
+      "color": "eccf56ff",
+      "small": "/static/assets/valorant/ranks/gold-3-small.png",
+      "large": "/static/assets/valorant/ranks/gold-3-large.png"
+    },
+    "platinum 1": {
+      "name": "Platinum 1",
+      "tier": 15,
+      "color": "59a9b6ff",
+      "small": "/static/assets/valorant/ranks/platinum-1-small.png",
+      "large": "/static/assets/valorant/ranks/platinum-1-large.png"
+    },
+    "platinum 2": {
+      "name": "Platinum 2",
+      "tier": 16,
+      "color": "59a9b6ff",
+      "small": "/static/assets/valorant/ranks/platinum-2-small.png",
+      "large": "/static/assets/valorant/ranks/platinum-2-large.png"
+    },
+    "platinum 3": {
+      "name": "Platinum 3",
+      "tier": 17,
+      "color": "59a9b6ff",
+      "small": "/static/assets/valorant/ranks/platinum-3-small.png",
+      "large": "/static/assets/valorant/ranks/platinum-3-large.png"
+    },
+    "diamond 1": {
+      "name": "Diamond 1",
+      "tier": 18,
+      "color": "b489c4ff",
+      "small": "/static/assets/valorant/ranks/diamond-1-small.png",
+      "large": "/static/assets/valorant/ranks/diamond-1-large.png"
+    },
+    "diamond 2": {
+      "name": "Diamond 2",
+      "tier": 19,
+      "color": "b489c4ff",
+      "small": "/static/assets/valorant/ranks/diamond-2-small.png",
+      "large": "/static/assets/valorant/ranks/diamond-2-large.png"
+    },
+    "diamond 3": {
+      "name": "Diamond 3",
+      "tier": 20,
+      "color": "b489c4ff",
+      "small": "/static/assets/valorant/ranks/diamond-3-small.png",
+      "large": "/static/assets/valorant/ranks/diamond-3-large.png"
+    },
+    "ascendant 1": {
+      "name": "Ascendant 1",
+      "tier": 21,
+      "color": "6ae2afff",
+      "small": "/static/assets/valorant/ranks/ascendant-1-small.png",
+      "large": "/static/assets/valorant/ranks/ascendant-1-large.png"
+    },
+    "ascendant 2": {
+      "name": "Ascendant 2",
+      "tier": 22,
+      "color": "6ae2afff",
+      "small": "/static/assets/valorant/ranks/ascendant-2-small.png",
+      "large": "/static/assets/valorant/ranks/ascendant-2-large.png"
+    },
+    "ascendant 3": {
+      "name": "Ascendant 3",
+      "tier": 23,
+      "color": "6ae2afff",
+      "small": "/static/assets/valorant/ranks/ascendant-3-small.png",
+      "large": "/static/assets/valorant/ranks/ascendant-3-large.png"
+    },
+    "immortal 1": {
+      "name": "Immortal 1",
+      "tier": 24,
+      "color": "bb3d65ff",
+      "small": "/static/assets/valorant/ranks/immortal-1-small.png",
+      "large": "/static/assets/valorant/ranks/immortal-1-large.png"
+    },
+    "immortal 2": {
+      "name": "Immortal 2",
+      "tier": 25,
+      "color": "bb3d65ff",
+      "small": "/static/assets/valorant/ranks/immortal-2-small.png",
+      "large": "/static/assets/valorant/ranks/immortal-2-large.png"
+    },
+    "immortal 3": {
+      "name": "Immortal 3",
+      "tier": 26,
+      "color": "bb3d65ff",
+      "small": "/static/assets/valorant/ranks/immortal-3-small.png",
+      "large": "/static/assets/valorant/ranks/immortal-3-large.png"
+    },
+    "radiant": {
+      "name": "Radiant",
+      "tier": 27,
+      "color": "ffffaaff",
+      "small": "/static/assets/valorant/ranks/radiant-small.png",
+      "large": "/static/assets/valorant/ranks/radiant-large.png"
+    }
+  },
+  "map_aliases": {
+    "/game/maps/ascent/ascent": "ascent",
+    "/game/maps/bonsai/bonsai": "split",
+    "/game/maps/canyon/canyon": "fracture",
+    "/game/maps/duality/duality": "bind",
+    "/game/maps/duel/duel_1/skirmish_a": "skirmish a",
+    "/game/maps/duel/duel_2/skirmish_b": "skirmish b",
+    "/game/maps/duel/duel_3/skirmish_c": "skirmish c",
+    "/game/maps/duel/duel_heady/skirmish_e": "skirmish e",
+    "/game/maps/duel/duel_platform/skirmish_d": "skirmish d",
+    "/game/maps/foxtrot/foxtrot": "breeze",
+    "/game/maps/hurm/hurm_alley/hurm_alley": "district",
+    "/game/maps/hurm/hurm_bowl/hurm_bowl": "kasbah",
+    "/game/maps/hurm/hurm_helix/hurm_helix": "drift",
+    "/game/maps/hurm/hurm_hightide/hurm_hightide": "glitch",
+    "/game/maps/hurm/hurm_yard/hurm_yard": "piazza",
+    "/game/maps/infinity/infinity": "abyss",
+    "/game/maps/jam/jam": "lotus",
+    "/game/maps/juliett/juliett": "sunset",
+    "/game/maps/npev2/npev2": "basic training",
+    "/game/maps/pitt/pitt": "pearl",
+    "/game/maps/port/port": "icebox",
+    "/game/maps/poveglia/range": "the range",
+    "/game/maps/povegliav2/rangev2": "the range",
+    "/game/maps/rook/rook": "corrode",
+    "/game/maps/triad/triad": "haven"
+  }
+}

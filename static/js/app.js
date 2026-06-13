@@ -60,6 +60,22 @@ function formatMapLabel(mapId) {
 }
 
 /**
+ * Builds an image tag when an asset URL is available.
+ *
+ * @param {string} src Image source.
+ * @param {string} alt Image alt text.
+ * @param {string} className Optional CSS class.
+ * @return {string} Image HTML or an empty string.
+ */
+function renderImage(src, alt, className = '') {
+    if (!src) {
+        return '';
+    }
+    const classAttr = className ? ` class="${escapeHtml(className)}"` : '';
+    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${classAttr}>`;
+}
+
+/**
  * Restores normal team section labels.
  */
 function resetTeamHeaders() {
@@ -162,12 +178,22 @@ function renderPostMatchSummary(summary, status) {
     const mapLabel = formatMapLabel(summary.map_id);
     const queueLabel = summary.queue_id || 'Unknown queue';
     const rrChange = Number(summary.rr_change || 0);
+    const mapStyle = summary.map_banner_url ? ` style="background-image: url('${escapeHtml(summary.map_banner_url)}')"` : '';
+    const rankupHtml = summary.rankup ? `
+        <span class="rankup-badge">
+            ${renderImage(summary.rank_before_icon_url, summary.rank_before || 'Rank before')}
+            ${escapeHtml(summary.rank_before || 'Previous')}
+            <span class="rankup-arrow">↑</span>
+            ${renderImage(summary.rank_after_icon_url, summary.rank_after || 'Rank after')}
+            ${escapeHtml(summary.rank_after || 'Next')}
+        </span>
+    ` : '';
     if (alliesAvg) {
         alliesAvg.textContent = `${summary.result} | ${summary.scoreline} | ${queueLabel} | ${rrChange >= 0 ? '+' : ''}${rrChange} RR`;
     }
 
     alliesList.innerHTML = `
-        <div class="post-match-card ${resultClass}">
+        <div class="post-match-card ${resultClass} ${summary.map_banner_url ? 'has-map-banner' : ''}"${mapStyle}>
             <div class="post-match-header">
                 <div>
                     <span class="post-match-kicker">YOUR GAME</span>
@@ -176,9 +202,10 @@ function renderPostMatchSummary(summary, status) {
                 <div class="post-match-scoreline">${escapeHtml(summary.scoreline)}</div>
             </div>
             <div class="post-match-meta">
-                <span>${escapeHtml(summary.agent)}</span>
+                ${summary.agent_icon_url ? `<span>${renderImage(summary.agent_icon_url, summary.agent)}${escapeHtml(summary.agent)}</span>` : `<span>${escapeHtml(summary.agent)}</span>`}
                 <span>${escapeHtml(mapLabel)}</span>
                 <span>${escapeHtml(queueLabel)}</span>
+                ${rankupHtml}
             </div>
             <div class="post-match-stats">
                 <div class="post-match-stat">
@@ -278,6 +305,7 @@ async function fetchSessionStatus() {
             updateConnectionUI(data);
             updateSessionWidget(data.session_summary);
             renderDashboard(data);
+            fetchCareer();
         } else {
             updateConnectionUI({ status: 'offline', game_phase: 'OFFLINE' });
             restorePlaceholders();
@@ -286,6 +314,122 @@ async function fetchSessionStatus() {
         updateConnectionUI({ status: 'offline', game_phase: 'OFFLINE' });
         restorePlaceholders();
     }
+}
+
+/**
+ * Fetches career stats for the current account.
+ */
+async function fetchCareer() {
+    try {
+        const response = await fetch('/api/career');
+        if (!response.ok) {
+            return;
+        }
+        const data = await response.json();
+        renderCareer(data);
+    } catch (error) {
+        // Keep the last career render if a polling tick fails.
+    }
+}
+
+/**
+ * Renders career aggregate stats and match history.
+ *
+ * @param {Object} career Career payload.
+ */
+function renderCareer(career) {
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.textContent = value;
+        }
+    };
+
+    const rrDelta = Number(career.rr_delta || 0);
+    setText('career-player', career.player_name || 'No account loaded');
+    setText('career-matches', career.matches || 0);
+    setText('career-winrate', `${Number(career.win_rate || 0).toFixed(1)}%`);
+    setText('career-kd', Number(career.avg_kd || 0).toFixed(2));
+    setText('career-hs', `${Number(career.avg_hs_percent || 0).toFixed(1)}%`);
+    setText('career-acs', career.avg_acs || 0);
+    setText('career-score', career.tracker_score || 0);
+    setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
+
+    const rankEl = document.getElementById('career-rank');
+    if (rankEl) {
+        rankEl.innerHTML = `
+            ${renderImage(career.current_rank_icon_url, career.current_rank || 'Rank')}
+            <span class="career-rank-name">${escapeHtml(career.current_rank || 'Unranked')}</span>
+        `;
+    }
+
+    const historyEl = document.getElementById('career-history');
+    if (!historyEl) {
+        return;
+    }
+
+    const matches = career.recent_matches || [];
+    if (matches.length === 0) {
+        historyEl.innerHTML = `
+            <div class="empty-state-card">
+                <span class="empty-state-text">No saved matches yet</span>
+            </div>
+        `;
+        return;
+    }
+
+    historyEl.innerHTML = matches.map(match => renderCareerMatch(match)).join('');
+}
+
+/**
+ * Renders a single career match row.
+ *
+ * @param {Object} match Match payload.
+ * @return {string} HTML string.
+ */
+function renderCareerMatch(match) {
+    const won = match.win_loss === 'WIN' || match.won;
+    const resultClass = won ? 'victory' : 'defeat';
+    const resultText = won ? 'VICTORY' : 'DEFEAT';
+    const rr = Number(match.rr_change || 0);
+    const bannerStyle = match.map_banner_url ? ` style="background-image: url('${escapeHtml(match.map_banner_url)}')"` : '';
+    const rankHtml = match.rankup ? `
+        <div class="career-match-rank">
+            ${renderImage(match.rank_before_icon_url, match.rank_before || 'Before')}
+            <span>${escapeHtml(match.rank_before || 'Before')}</span>
+            <span class="rankup-arrow">↑</span>
+            ${renderImage(match.rank_after_icon_url, match.rank_after || 'After')}
+            <span>${escapeHtml(match.rank_after || 'After')}</span>
+        </div>
+    ` : match.rank_after ? `
+        <div class="career-match-rank">
+            ${renderImage(match.rank_after_icon_url, match.rank_after)}
+            <span>${escapeHtml(match.rank_after)}</span>
+        </div>
+    ` : '';
+
+    return `
+        <div class="career-match-card">
+            <div class="career-map-banner"${bannerStyle}></div>
+            <div class="career-match-body">
+                <div class="career-match-main">
+                    <span class="career-match-result ${resultClass}">${resultText}</span>
+                    <span class="career-match-meta">${escapeHtml(match.map_name || formatMapLabel(match.map || match.map_id))} · ${escapeHtml(match.gamemode || '')} · ${rr >= 0 ? '+' : ''}${rr} RR</span>
+                    ${rankHtml}
+                </div>
+                <div class="career-match-agent">
+                    ${renderImage(match.agent_icon_url, match.agent || 'Agent')}
+                    <span>${escapeHtml(match.agent || 'Unknown Agent')}</span>
+                </div>
+                <div class="career-match-stats">
+                    <span class="stat-box"><span class="stat-label">KDA</span><span class="stat-value">${match.kills || 0}/${match.deaths || 0}/${match.assists || 0}</span></span>
+                    <span class="stat-box"><span class="stat-label">KD</span><span class="stat-value">${Number(match.kd || 0).toFixed(2)}</span></span>
+                    <span class="stat-box"><span class="stat-label">HS%</span><span class="stat-value">${Number(match.hs_percent || 0).toFixed(1)}%</span></span>
+                    <span class="stat-box"><span class="stat-label">ACS</span><span class="stat-value">${match.acs || 0}</span></span>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 /**
@@ -393,6 +537,10 @@ function renderPlayerList(players, isAllies) {
         }
         
         const agentInitial = player.agent ? player.agent.charAt(0) : 'U';
+        const agentAvatarHtml = player.agent_icon_url
+            ? renderImage(player.agent_icon_url, player.agent || 'Agent')
+            : `<span class="placeholder-avatar">${agentInitial}</span>`;
+        const rankIconHtml = renderImage(player.rank_icon_url, player.rank || 'Rank', 'rank-icon');
         
         let badgeHtml = '';
         if (player.badge) {
@@ -427,7 +575,7 @@ function renderPlayerList(players, isAllies) {
         card.innerHTML = `
             <div class="player-identity">
                 <div class="agent-avatar">
-                    <span class="placeholder-avatar">${agentInitial}</span>
+                    ${agentAvatarHtml}
                 </div>
                 <div class="player-names">
                     <span class="player-tag">${player.agent}</span>
@@ -435,7 +583,7 @@ function renderPlayerList(players, isAllies) {
                 </div>
             </div>
             <div class="player-rank">
-                <div class="rank-name">${player.rank}</div>
+                <div class="rank-name">${rankIconHtml}${player.rank}</div>
                 <div class="peak-rank">Peak: ${player.peak_rank}</div>
             </div>
             <div class="player-stats">

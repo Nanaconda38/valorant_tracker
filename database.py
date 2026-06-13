@@ -25,6 +25,17 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _select_or_default(self, existing_columns: set, column: str, default_sql: str) -> str:
+        """
+        Returns a selectable column or a SQL default expression for migrations.
+
+        @param existing_columns: Existing source table columns.
+        @param column: Desired column name.
+        @param default_sql: SQL expression used when the column is missing.
+        @return: SQL select expression.
+        """
+        return column if column in existing_columns else f"{default_sql} AS {column}"
+
     def init_db(self) -> None:
         """
         Initializes the database schema if it does not exist.
@@ -33,9 +44,11 @@ class DatabaseManager:
         try:
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS my_matches (
+                CREATE TABLE IF NOT EXISTS my_matches_v2 (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    match_id TEXT NOT NULL UNIQUE,
+                    puuid TEXT NOT NULL,
+                    player_name TEXT,
+                    match_id TEXT NOT NULL,
                     date TEXT NOT NULL,
                     gamemode TEXT,
                     map TEXT,
@@ -49,11 +62,132 @@ class DatabaseManager:
                     deaths INTEGER,
                     assists INTEGER,
                     score INTEGER,
-                    kda REAL
+                    kda REAL,
+                    rank_before TEXT,
+                    rank_after TEXT,
+                    rankup INTEGER DEFAULT 0,
+                    rr_before INTEGER,
+                    rr_after INTEGER,
+                    UNIQUE(puuid, match_id)
+                )
+                """
+            )
+            existing_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(my_matches)").fetchall()
+            }
+            if existing_columns:
+                player_name_sql = self._select_or_default(existing_columns, "player_name", "NULL")
+                rank_before_sql = self._select_or_default(existing_columns, "rank_before", "NULL")
+                rank_after_sql = self._select_or_default(existing_columns, "rank_after", "NULL")
+                rankup_sql = self._select_or_default(existing_columns, "rankup", "0")
+                rr_before_sql = self._select_or_default(existing_columns, "rr_before", "NULL")
+                rr_after_sql = self._select_or_default(existing_columns, "rr_after", "NULL")
+                conn.execute(
+                    f"""
+                    INSERT OR IGNORE INTO my_matches_v2 (
+                        puuid, player_name, match_id, date, gamemode, map, agent,
+                        win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
+                        assists, score, kda, rank_before, rank_after, rankup,
+                        rr_before, rr_after
+                    )
+                    SELECT
+                        COALESCE(NULLIF(puuid, ''), 'legacy') AS puuid,
+                        {player_name_sql},
+                        match_id,
+                        date,
+                        gamemode,
+                        map,
+                        agent,
+                        win_loss,
+                        rr_change,
+                        acs,
+                        kd,
+                        hs_percent,
+                        kills,
+                        deaths,
+                        assists,
+                        score,
+                        kda,
+                        {rank_before_sql},
+                        {rank_after_sql},
+                        {rankup_sql},
+                        {rr_before_sql},
+                        {rr_after_sql}
+                    FROM my_matches
+                    """
+                    if "puuid" in existing_columns
+                    else
+                    f"""
+                    INSERT OR IGNORE INTO my_matches_v2 (
+                        puuid, player_name, match_id, date, gamemode, map, agent,
+                        win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
+                        assists, score, kda, rank_before, rank_after, rankup,
+                        rr_before, rr_after
+                    )
+                    SELECT
+                        'legacy' AS puuid,
+                        NULL AS player_name,
+                        match_id,
+                        date,
+                        gamemode,
+                        map,
+                        agent,
+                        win_loss,
+                        rr_change,
+                        acs,
+                        kd,
+                        hs_percent,
+                        kills,
+                        deaths,
+                        assists,
+                        score,
+                        kda,
+                        {rank_before_sql},
+                        {rank_after_sql},
+                        {rankup_sql},
+                        {rr_before_sql},
+                        {rr_after_sql}
+                    FROM my_matches
+                    """
+                )
+                conn.execute("DROP TABLE my_matches")
+                conn.execute("ALTER TABLE my_matches_v2 RENAME TO my_matches")
+            else:
+                conn.execute("ALTER TABLE my_matches_v2 RENAME TO my_matches")
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS my_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    puuid TEXT NOT NULL,
+                    player_name TEXT,
+                    match_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    gamemode TEXT,
+                    map TEXT,
+                    agent TEXT,
+                    win_loss TEXT,
+                    rr_change INTEGER DEFAULT 0,
+                    acs INTEGER,
+                    kd REAL,
+                    hs_percent REAL,
+                    kills INTEGER,
+                    deaths INTEGER,
+                    assists INTEGER,
+                    score INTEGER,
+                    kda REAL,
+                    rank_before TEXT,
+                    rank_after TEXT,
+                    rankup INTEGER DEFAULT 0,
+                    rr_before INTEGER,
+                    rr_after INTEGER,
+                    UNIQUE(puuid, match_id)
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_my_matches_date ON my_matches(date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_my_matches_puuid_date ON my_matches(puuid, date)")
             conn.commit()
         finally:
             conn.close()
@@ -70,12 +204,16 @@ class DatabaseManager:
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO my_matches (
-                    match_id, date, gamemode, map, agent, win_loss, rr_change,
-                    acs, kd, hs_percent, kills, deaths, assists, score, kda
+                    puuid, player_name, match_id, date, gamemode, map, agent,
+                    win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
+                    assists, score, kda, rank_before, rank_after, rankup,
+                    rr_before, rr_after
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    match_data.get("puuid"),
+                    match_data.get("player_name"),
                     match_data.get("match_id"),
                     match_data.get("date"),
                     match_data.get("gamemode"),
@@ -90,7 +228,12 @@ class DatabaseManager:
                     int(match_data.get("deaths") or 0),
                     int(match_data.get("assists") or 0),
                     int(match_data.get("score") or 0),
-                    float(match_data.get("kda") or 0)
+                    float(match_data.get("kda") or 0),
+                    match_data.get("rank_before"),
+                    match_data.get("rank_after"),
+                    1 if match_data.get("rankup") else 0,
+                    match_data.get("rr_before"),
+                    match_data.get("rr_after")
                 )
             )
             conn.commit()
@@ -98,25 +241,32 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def get_session_summary(self, since: str) -> dict:
+    def get_session_summary(self, since: str, puuid: str = "") -> dict:
         """
         Calculates wins, losses, and RR delta since a given ISO datetime.
 
         @param since: ISO datetime string for the session start.
+        @param puuid: Optional account PUUID to filter the session.
         @return: Session summary dictionary.
         """
         conn = self._connect()
         try:
+            where_clause = "date >= ?"
+            params = [since]
+            if puuid:
+                where_clause += " AND puuid = ?"
+                params.append(puuid)
+
             row = conn.execute(
-                """
+                f"""
                 SELECT
                     SUM(CASE WHEN win_loss = 'WIN' THEN 1 ELSE 0 END) AS wins,
                     SUM(CASE WHEN win_loss = 'LOSS' THEN 1 ELSE 0 END) AS losses,
                     COALESCE(SUM(rr_change), 0) AS rr_delta
                 FROM my_matches
-                WHERE date >= ?
+                WHERE {where_clause}
                 """,
-                (since,)
+                params
             ).fetchone()
         finally:
             conn.close()
@@ -125,4 +275,73 @@ class DatabaseManager:
             "wins": int(row["wins"] or 0),
             "losses": int(row["losses"] or 0),
             "rr_delta": int(row["rr_delta"] or 0)
+        }
+
+    def get_career_summary(self, puuid: str, limit: int = 20) -> dict:
+        """
+        Returns aggregate and recent match history for a player account.
+
+        @param puuid: Account PUUID.
+        @param limit: Number of recent matches to include.
+        @return: Career summary dictionary.
+        """
+        if not puuid:
+            return {
+                "matches": 0,
+                "wins": 0,
+                "losses": 0,
+                "win_rate": 0,
+                "rr_delta": 0,
+                "avg_acs": 0,
+                "avg_kd": 0,
+                "avg_hs_percent": 0,
+                "recent_matches": []
+            }
+
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS matches,
+                    SUM(CASE WHEN win_loss = 'WIN' THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN win_loss = 'LOSS' THEN 1 ELSE 0 END) AS losses,
+                    COALESCE(SUM(rr_change), 0) AS rr_delta,
+                    COALESCE(AVG(acs), 0) AS avg_acs,
+                    COALESCE(AVG(kd), 0) AS avg_kd,
+                    COALESCE(AVG(hs_percent), 0) AS avg_hs_percent
+                FROM my_matches
+                WHERE puuid = ?
+                """,
+                (puuid,)
+            ).fetchone()
+            recent_rows = conn.execute(
+                """
+                SELECT
+                    match_id, date, gamemode, map, agent, win_loss, rr_change,
+                    acs, kd, hs_percent, kills, deaths, assists, score, kda,
+                    rank_before, rank_after, rankup, rr_before, rr_after
+                FROM my_matches
+                WHERE puuid = ?
+                ORDER BY date DESC
+                LIMIT ?
+                """,
+                (puuid, limit)
+            ).fetchall()
+        finally:
+            conn.close()
+
+        matches = int(row["matches"] or 0)
+        wins = int(row["wins"] or 0)
+        losses = int(row["losses"] or 0)
+        return {
+            "matches": matches,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round((wins / matches) * 100, 1) if matches else 0,
+            "rr_delta": int(row["rr_delta"] or 0),
+            "avg_acs": round(row["avg_acs"] or 0),
+            "avg_kd": round(row["avg_kd"] or 0, 2),
+            "avg_hs_percent": round(row["avg_hs_percent"] or 0, 1),
+            "recent_matches": [dict(match) for match in recent_rows]
         }

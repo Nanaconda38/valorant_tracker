@@ -120,7 +120,8 @@
 - `[x]` **Modèle SQLite**
   - `[x]` Initialiser `tracker.db`
   - `[x]` Créer la table `my_matches` avec les champs post-match principaux
-  - `[x]` Empêcher les doublons via `match_id`
+  - `[x]` Empêcher les doublons via le couple `puuid` + `match_id`
+  - `[x]` Supporter plusieurs comptes sur la même machine via `puuid` et `player_name`
 
 - `[x]` **Enregistrement Post-Match & RR**
   - `[x]` Réutiliser le résumé post-game après retour `MENUS`
@@ -129,7 +130,7 @@
 
 - `[x]` **UI de Session**
   - `[x]` Exposer `session_summary` dans `/api/session-status`
-  - `[x]` Mettre à jour le widget haut de page avec wins/losses/RR depuis la session serveur
+  - `[x]` Mettre à jour le widget haut de page avec wins/losses/RR du compte courant
   - `[x]` Afficher le RR sur la carte post-match
 
 - `[/]` **Recette et Validation Phase 5**

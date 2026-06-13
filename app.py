@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from asset_manager import AssetManager
 from database import DatabaseManager
 
 load_dotenv()
@@ -20,6 +21,7 @@ app = FastAPI(title="Valorant Local Tracker")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 templates = Jinja2Templates(directory="templates")
+asset_manager = AssetManager()
 db_manager = DatabaseManager()
 
 tracker_state = {
@@ -125,6 +127,19 @@ RANKS = [
     "Radiant"
 ]
 
+RANK_BY_TIER = {
+    0: "Unranked",
+    3: "Iron 1", 4: "Iron 2", 5: "Iron 3",
+    6: "Bronze 1", 7: "Bronze 2", 8: "Bronze 3",
+    9: "Silver 1", 10: "Silver 2", 11: "Silver 3",
+    12: "Gold 1", 13: "Gold 2", 14: "Gold 3",
+    15: "Platinum 1", 16: "Platinum 2", 17: "Platinum 3",
+    18: "Diamond 1", 19: "Diamond 2", 20: "Diamond 3",
+    21: "Ascendant 1", 22: "Ascendant 2", 23: "Ascendant 3",
+    24: "Immortal 1", 25: "Immortal 2", 26: "Immortal 3",
+    27: "Radiant"
+}
+
 
 def get_rank_index(rank_name: str) -> int:
     """
@@ -159,6 +174,55 @@ def calculate_tracker_score(kd: float, hs_percent: float, acs: int, rank: str, p
     gap = max(0, peak_idx - curr_idx)
     gap_pts = max(50, 150 - (gap * 15))
     return acs_pts + kd_pts + hs_pts + form_pts + gap_pts
+
+
+def rank_name_from_tier(tier: int | None) -> str:
+    """
+    Converts Riot competitive tier ids to display rank names.
+
+    @param tier: Riot competitive tier id.
+    @return: Rank display name.
+    """
+    if tier is None:
+        return ""
+    return RANK_BY_TIER.get(int(_number_or_zero(tier)), "")
+
+
+def enrich_player_assets(player_info: dict) -> dict:
+    """
+    Adds local agent and rank asset URLs to a player card payload.
+
+    @param player_info: Player card dictionary.
+    @return: The same dictionary enriched with asset URLs.
+    """
+    agent_assets = asset_manager.agent(player_info.get("agent_id", "")) or asset_manager.agent(player_info.get("agent", ""))
+    rank_assets = asset_manager.rank(player_info.get("rank", ""))
+    peak_rank_assets = asset_manager.rank(player_info.get("peak_rank", ""))
+    player_info["agent_icon_url"] = agent_assets.get("icon", "")
+    player_info["agent_full_url"] = agent_assets.get("full", "")
+    player_info["rank_icon_url"] = rank_assets.get("small") or rank_assets.get("large", "")
+    player_info["peak_rank_icon_url"] = peak_rank_assets.get("small") or peak_rank_assets.get("large", "")
+    return player_info
+
+
+def enrich_match_assets(match_info: dict) -> dict:
+    """
+    Adds local agent, rank, and map asset URLs to a match payload.
+
+    @param match_info: Match dictionary.
+    @return: The same dictionary enriched with asset URLs.
+    """
+    agent_assets = asset_manager.agent(match_info.get("agent_id", "")) or asset_manager.agent(match_info.get("agent", ""))
+    map_assets = asset_manager.map(match_info.get("map_id") or match_info.get("map", ""))
+    rank_before_assets = asset_manager.rank(match_info.get("rank_before", ""))
+    rank_after_assets = asset_manager.rank(match_info.get("rank_after", ""))
+    match_info["agent_icon_url"] = agent_assets.get("icon", "")
+    match_info["agent_full_url"] = agent_assets.get("full", "")
+    match_info["map_name"] = map_assets.get("name", "")
+    match_info["map_banner_url"] = map_assets.get("banner", "")
+    match_info["rank_before_icon_url"] = rank_before_assets.get("small") or rank_before_assets.get("large", "")
+    match_info["rank_after_icon_url"] = rank_after_assets.get("small") or rank_after_assets.get("large", "")
+    return match_info
 
 
 def get_region_shard(local_region: str) -> tuple:
@@ -291,6 +355,7 @@ def build_post_match_summary(match_data: dict, puuid: str) -> dict | None:
         "match_id": match_info.get("matchId") or match_info.get("matchID") or tracker_state.get("current_match_id", ""),
         "queue_id": queue_id,
         "map_id": map_id,
+        "agent_id": agent_id,
         "agent": AGENT_MAPPING.get(agent_id, "Unknown Agent"),
         "won": won,
         "result": "VICTORY" if won else "DEFEAT",
@@ -351,6 +416,48 @@ def extract_rr_change(mmr_data: dict, match_id: str) -> int:
     return 0
 
 
+def extract_mmr_update(mmr_data: dict, match_id: str) -> dict:
+    """
+    Extracts RR and rank movement for a match from Riot MMR payloads.
+
+    @param mmr_data: Riot MMR response payload.
+    @param match_id: Completed match id.
+    @return: Match MMR update dictionary.
+    """
+    candidates = []
+    matches = mmr_data.get("Matches", [])
+    if isinstance(matches, list):
+        candidates.extend(matches)
+
+    latest = mmr_data.get("LatestCompetitiveUpdate")
+    if isinstance(latest, dict):
+        candidates.append(latest)
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        if item.get("MatchID") == match_id or item.get("MatchId") == match_id or item.get("matchId") == match_id:
+            tier_before = int(_number_or_zero(item.get("TierBeforeUpdate")))
+            tier_after = int(_number_or_zero(item.get("TierAfterUpdate")))
+            return {
+                "rr_change": int(_number_or_zero(item.get("RankedRatingEarned"))),
+                "rank_before": rank_name_from_tier(tier_before),
+                "rank_after": rank_name_from_tier(tier_after),
+                "rankup": tier_after > tier_before,
+                "rr_before": int(_number_or_zero(item.get("RankedRatingBeforeUpdate"))),
+                "rr_after": int(_number_or_zero(item.get("RankedRatingAfterUpdate")))
+            }
+
+    return {
+        "rr_change": 0,
+        "rank_before": "",
+        "rank_after": "",
+        "rankup": False,
+        "rr_before": None,
+        "rr_after": None
+    }
+
+
 async def fetch_rr_change(
     client: httpx.AsyncClient,
     local_url: str,
@@ -391,14 +498,58 @@ async def fetch_rr_change(
     return 0
 
 
+async def fetch_mmr_update(
+    client: httpx.AsyncClient,
+    local_url: str,
+    pd_url: str,
+    puuid: str,
+    match_id: str,
+    local_headers: dict,
+    remote_headers: dict
+) -> dict:
+    """
+    Fetches RR and rank movement for the completed match.
+
+    @param client: HTTP client.
+    @param local_url: Local Riot client base URL.
+    @param pd_url: Riot PD base URL.
+    @param puuid: Local player's PUUID.
+    @param match_id: Completed match id.
+    @param local_headers: Local auth headers.
+    @param remote_headers: Riot PD auth headers.
+    @return: Match MMR update dictionary.
+    """
+    local_resp = await client.get(f"{local_url}/mmr/v1/user/{puuid}", headers=local_headers)
+    if local_resp.status_code == 200:
+        return extract_mmr_update(local_resp.json(), match_id)
+
+    updates_resp = await client.get(
+        f"{pd_url}/mmr/v1/players/{puuid}/competitiveupdates?startIndex=0&endIndex=10",
+        headers=remote_headers
+    )
+    if updates_resp.status_code == 200:
+        return extract_mmr_update(updates_resp.json(), match_id)
+
+    player_mmr_resp = await client.get(f"{pd_url}/mmr/v1/players/{puuid}", headers=remote_headers)
+    if player_mmr_resp.status_code == 200:
+        return extract_mmr_update(player_mmr_resp.json(), match_id)
+
+    print(f"DEBUG MMR UPDATE: local={local_resp.status_code} updates={updates_resp.status_code}", flush=True)
+    return extract_mmr_update({}, match_id)
+
+
 def refresh_session_summary() -> None:
     """
     Updates the in-memory session widget state from SQLite.
     """
-    tracker_state["session_summary"] = db_manager.get_session_summary(SESSION_STARTED_AT)
+    puuid = tracker_state.get("puuid", "")
+    if not puuid:
+        tracker_state["session_summary"] = {"wins": 0, "losses": 0, "rr_delta": 0}
+        return
+    tracker_state["session_summary"] = db_manager.get_session_summary(SESSION_STARTED_AT, puuid)
 
 
-def persist_completed_match(summary: dict) -> bool:
+def persist_completed_match(summary: dict, puuid: str, player_name: str) -> bool:
     """
     Saves a completed match once and refreshes the session summary.
 
@@ -406,11 +557,14 @@ def persist_completed_match(summary: dict) -> bool:
     @return: True when inserted, False when already persisted or invalid.
     """
     match_id = summary.get("match_id")
-    if not match_id or match_id in persisted_match_ids:
+    persist_key = (puuid, match_id)
+    if not puuid or not match_id or persist_key in persisted_match_ids:
         refresh_session_summary()
         return False
 
     match_data = {
+        "puuid": puuid,
+        "player_name": player_name,
         "match_id": match_id,
         "date": datetime.now(timezone.utc).isoformat(),
         "gamemode": summary.get("queue_id", ""),
@@ -425,10 +579,15 @@ def persist_completed_match(summary: dict) -> bool:
         "deaths": summary.get("deaths", 0),
         "assists": summary.get("assists", 0),
         "score": summary.get("score", 0),
-        "kda": summary.get("kda", 0)
+        "kda": summary.get("kda", 0),
+        "rank_before": summary.get("rank_before", ""),
+        "rank_after": summary.get("rank_after", ""),
+        "rankup": summary.get("rankup", False),
+        "rr_before": summary.get("rr_before"),
+        "rr_after": summary.get("rr_after")
     }
     inserted = db_manager.save_match(match_data)
-    persisted_match_ids.add(match_id)
+    persisted_match_ids.add(persist_key)
     refresh_session_summary()
     if inserted:
         print(f"DEBUG DB: saved match {match_id} ({match_data['win_loss']}, {match_data['rr_change']} RR)", flush=True)
@@ -454,6 +613,7 @@ async def background_scan_loop() -> None:
                 tracker_state["map_id"] = ""
                 tracker_state["allies"] = []
                 tracker_state["enemies"] = []
+                refresh_session_summary()
                 refresh_stats_cache_context()
                 await asyncio.sleep(3)
                 continue
@@ -469,8 +629,11 @@ async def background_scan_loop() -> None:
                     if session_resp.status_code != 200:
                         tracker_state["status"] = "searching_game"
                         tracker_state["game_phase"] = "OFFLINE"
+                        tracker_state["player_name"] = "Unknown"
+                        tracker_state["puuid"] = ""
                         tracker_state["allies"] = []
                         tracker_state["enemies"] = []
+                        refresh_session_summary()
                         refresh_stats_cache_context()
                         await asyncio.sleep(3)
                         continue
@@ -480,14 +643,20 @@ async def background_scan_loop() -> None:
                     game_name = session_data.get("game_name", "")
                     game_tag = session_data.get("game_tag", "")
                     
+                    previous_puuid = tracker_state.get("puuid", "")
                     tracker_state["puuid"] = puuid
                     tracker_state["player_name"] = f"{game_name}#{game_tag}"
                     tracker_state["status"] = "connected"
+                    if previous_puuid != puuid:
+                        refresh_session_summary()
                 except (httpx.ConnectError, httpx.TimeoutException):
                     tracker_state["status"] = "searching_game"
                     tracker_state["game_phase"] = "OFFLINE"
+                    tracker_state["player_name"] = "Unknown"
+                    tracker_state["puuid"] = ""
                     tracker_state["allies"] = []
                     tracker_state["enemies"] = []
+                    refresh_session_summary()
                     refresh_stats_cache_context()
                     await asyncio.sleep(3)
                     continue
@@ -621,6 +790,7 @@ async def background_scan_loop() -> None:
                                     all_players_data.append({
                                         "puuid": p_puuid,
                                         "name": p_name,
+                                        "agent_id": p_agent_id,
                                         "agent": p_agent_name,
                                         "rank": p_stats.get("rank", "Unknown"),
                                         "peak_rank": p_stats.get("peak_rank", "Unknown"),
@@ -646,9 +816,10 @@ async def background_scan_loop() -> None:
                                     if p_grp:
                                         badge = f"Duo" if list(group_map.values()).count(p_grp) == 2 else "Trio"
                                         
-                                    new_allies.append({
+                                    player_info = {
                                         "puuid": player["puuid"],
                                         "name": player["name"],
+                                        "agent_id": player.get("agent_id", ""),
                                         "agent": player["agent"],
                                         "rank": player["rank"],
                                         "peak_rank": player["peak_rank"],
@@ -658,7 +829,8 @@ async def background_scan_loop() -> None:
                                         "badge": badge,
                                         "score": score,
                                         "group_id": p_grp
-                                    })
+                                    }
+                                    new_allies.append(enrich_player_assets(player_info))
                                 tracker_state["allies"] = new_allies
                                 tracker_state["enemies"] = []
                     except Exception as e:
@@ -714,6 +886,7 @@ async def background_scan_loop() -> None:
                                     all_players_data.append({
                                         "puuid": p_puuid,
                                         "name": p_name,
+                                        "agent_id": p_agent_id,
                                         "agent": p_agent_name,
                                         "team": p_team,
                                         "rank": p_stats.get("rank", "Unknown"),
@@ -744,6 +917,7 @@ async def background_scan_loop() -> None:
                                     player_info = {
                                         "puuid": player["puuid"],
                                         "name": player["name"],
+                                        "agent_id": player.get("agent_id", ""),
                                         "agent": player["agent"],
                                         "rank": player["rank"],
                                         "peak_rank": player["peak_rank"],
@@ -754,6 +928,7 @@ async def background_scan_loop() -> None:
                                         "score": score,
                                         "group_id": p_grp
                                     }
+                                    enrich_player_assets(player_info)
                                     
                                     if player["team"] == ally_team_id:
                                         new_allies.append(player_info)
@@ -777,7 +952,7 @@ async def background_scan_loop() -> None:
                         tracker_state["allies"] = []
                         tracker_state["enemies"] = []
                         if summary:
-                            summary["rr_change"] = await fetch_rr_change(
+                            summary.update(await fetch_mmr_update(
                                 client,
                                 url,
                                 pd_url,
@@ -785,10 +960,11 @@ async def background_scan_loop() -> None:
                                 tracker_state["current_match_id"],
                                 headers,
                                 remote_headers
-                            )
+                            ))
+                            enrich_match_assets(summary)
                             tracker_state["last_match"] = summary
                             tracker_state["last_match_status"] = "available"
-                            persist_completed_match(summary)
+                            persist_completed_match(summary, puuid, tracker_state.get("player_name", "Unknown"))
                         else:
                             tracker_state["last_match_status"] = "loading"
                     except Exception as e:
@@ -801,8 +977,11 @@ async def background_scan_loop() -> None:
         except Exception:
             tracker_state["status"] = "offline"
             tracker_state["game_phase"] = "OFFLINE"
+            tracker_state["player_name"] = "Unknown"
+            tracker_state["puuid"] = ""
             tracker_state["allies"] = []
             tracker_state["enemies"] = []
+            refresh_session_summary()
             refresh_stats_cache_context()
             
         await asyncio.sleep(3)
@@ -837,6 +1016,43 @@ async def get_session_status() -> dict:
     @return: A JSON response containing the status payload.
     """
     return tracker_state
+
+
+@app.get("/api/career")
+async def get_career() -> dict:
+    """
+    Retrieves career history and aggregate stats for the current account.
+
+    @return: Career summary for the active PUUID.
+    """
+    puuid = tracker_state.get("puuid", "")
+    career = db_manager.get_career_summary(puuid)
+    recent_matches = []
+    current_rank = ""
+    for match in career["recent_matches"]:
+        match["map_id"] = match.get("map", "")
+        match["won"] = match.get("win_loss") == "WIN"
+        match["result"] = "VICTORY" if match["won"] else "DEFEAT"
+        match["scoreline"] = ""
+        enrich_match_assets(match)
+        if not current_rank and match.get("rank_after"):
+            current_rank = match["rank_after"]
+        recent_matches.append(match)
+
+    career["recent_matches"] = recent_matches
+    career["puuid"] = puuid
+    career["player_name"] = tracker_state.get("player_name", "Unknown")
+    career["current_rank"] = current_rank
+    rank_assets = asset_manager.rank(current_rank)
+    career["current_rank_icon_url"] = rank_assets.get("large") or rank_assets.get("small", "")
+    career["tracker_score"] = calculate_tracker_score(
+        career["avg_kd"],
+        career["avg_hs_percent"],
+        career["avg_acs"],
+        current_rank or "Unranked",
+        current_rank or "Unranked"
+    ) if career["matches"] else 0
+    return career
 
 
 @app.get("/api/debug/lcu")

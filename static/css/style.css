@@ -385,6 +385,14 @@ h1#app-title .sub-logo {
     justify-content: center;
     font-weight: 700;
     color: var(--text-secondary);
+    overflow: hidden;
+    position: relative;
+}
+
+.agent-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .player-names {
@@ -414,6 +422,15 @@ h1#app-title .sub-logo {
     font-weight: 600;
     font-size: 0.9rem;
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.rank-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
 }
 
 .peak-rank {
@@ -576,6 +593,24 @@ h1#app-title .sub-logo {
     position: relative;
 }
 
+.post-match-card.has-map-banner {
+    background-position: center;
+    background-size: cover;
+}
+
+.post-match-card.has-map-banner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(7, 9, 13, 0.9), rgba(7, 9, 13, 0.68));
+    z-index: 0;
+}
+
+.post-match-card > * {
+    position: relative;
+    z-index: 1;
+}
+
 .post-match-card::before {
     content: '';
     position: absolute;
@@ -624,14 +659,36 @@ h1#app-title .sub-logo {
     gap: 0.5rem;
 }
 
-.post-match-meta span {
+.post-match-meta > span {
+    align-items: center;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-secondary);
+    display: inline-flex;
     font-size: 0.75rem;
     font-weight: 700;
+    gap: 0.35rem;
     padding: 0.3rem 0.5rem;
     text-transform: uppercase;
+}
+
+.post-match-meta img {
+    height: 22px;
+    object-fit: contain;
+    width: 22px;
+}
+
+.rankup-badge {
+    align-items: center;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.26);
+    border-radius: 4px;
+    color: #10b981;
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-weight: 800;
+    gap: 0.35rem;
+    padding: 0.3rem 0.5rem;
 }
 
 .post-match-stats {
@@ -673,6 +730,202 @@ h1#app-title .sub-logo {
 
     .post-match-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* --- Career --- */
+.career-section {
+    margin-top: 2rem;
+    background: rgba(12, 15, 23, 0.55);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+}
+
+.career-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.career-title {
+    color: var(--text-primary);
+    font-family: var(--font-headers);
+    font-size: 1.25rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+}
+
+.career-player {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.career-rank {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.career-rank img {
+    height: 34px;
+    object-fit: contain;
+    width: 34px;
+}
+
+.career-rank-name {
+    color: var(--text-primary);
+    font-family: var(--font-headers);
+    font-weight: 800;
+}
+
+.career-summary-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(7, minmax(90px, 1fr));
+    margin-bottom: 1rem;
+}
+
+.career-stat {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+}
+
+.career-history {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.career-match-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    min-height: 104px;
+    overflow: hidden;
+}
+
+.career-map-banner {
+    background: rgba(255, 255, 255, 0.04);
+    background-position: center;
+    background-size: cover;
+}
+
+.career-match-body {
+    align-items: center;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1.1fr 1.3fr 1fr;
+    padding: 0.85rem 1rem;
+}
+
+.career-match-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.career-match-result {
+    font-family: var(--font-headers);
+    font-weight: 900;
+}
+
+.career-match-result.victory {
+    color: var(--valorant-blue);
+}
+
+.career-match-result.defeat {
+    color: var(--valorant-red);
+}
+
+.career-match-meta {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.career-match-agent {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.career-match-agent img {
+    border-radius: 6px;
+    height: 34px;
+    object-fit: cover;
+    width: 34px;
+}
+
+.career-match-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: flex-end;
+}
+
+.career-match-rank {
+    align-items: center;
+    color: var(--text-secondary);
+    display: flex;
+    font-size: 0.75rem;
+    font-weight: 800;
+    gap: 0.35rem;
+}
+
+.career-match-rank img {
+    height: 22px;
+    object-fit: contain;
+    width: 22px;
+}
+
+.rankup-arrow {
+    color: #10b981;
+    font-size: 1rem;
+}
+
+@media (max-width: 1100px) {
+    .career-summary-grid {
+        grid-template-columns: repeat(4, minmax(90px, 1fr));
+    }
+
+    .career-match-card {
+        grid-template-columns: 140px 1fr;
+    }
+
+    .career-match-body {
+        grid-template-columns: 1fr;
+    }
+
+    .career-match-stats {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .career-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .career-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .career-match-card {
+        grid-template-columns: 1fr;
+    }
+
+    .career-map-banner {
+        min-height: 92px;
     }
 }
 
