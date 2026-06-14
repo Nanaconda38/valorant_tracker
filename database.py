@@ -1,18 +1,24 @@
 import sqlite3
 from pathlib import Path
 
+from app_logging import get_logger
+from app_paths import database_path
+
+
+logger = get_logger(__name__)
+
 class DatabaseManager:
     """
     Manages the SQLite database for local matchmaking tracking.
     """
 
-    def __init__(self, db_path: str = "tracker.db"):
+    def __init__(self, db_path: str | Path | None = None):
         """
         Initializes the DatabaseManager with the database path.
 
         @param db_path: Path to the SQLite database file.
         """
-        self.db_path = db_path
+        self.db_path = str(db_path or database_path())
 
     def _connect(self) -> sqlite3.Connection:
         """
@@ -68,6 +74,7 @@ class DatabaseManager:
                     rankup INTEGER DEFAULT 0,
                     rr_before INTEGER,
                     rr_after INTEGER,
+                    season_id TEXT,
                     UNIQUE(puuid, match_id)
                 )
                 """
@@ -83,13 +90,14 @@ class DatabaseManager:
                 rankup_sql = self._select_or_default(existing_columns, "rankup", "0")
                 rr_before_sql = self._select_or_default(existing_columns, "rr_before", "NULL")
                 rr_after_sql = self._select_or_default(existing_columns, "rr_after", "NULL")
+                season_id_sql = self._select_or_default(existing_columns, "season_id", "NULL")
                 conn.execute(
                     f"""
                     INSERT OR IGNORE INTO my_matches_v2 (
                         puuid, player_name, match_id, date, gamemode, map, agent,
                         win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
                         assists, score, kda, rank_before, rank_after, rankup,
-                        rr_before, rr_after
+                        rr_before, rr_after, season_id
                     )
                     SELECT
                         COALESCE(NULLIF(puuid, ''), 'legacy') AS puuid,
@@ -113,7 +121,8 @@ class DatabaseManager:
                         {rank_after_sql},
                         {rankup_sql},
                         {rr_before_sql},
-                        {rr_after_sql}
+                        {rr_after_sql},
+                        {season_id_sql}
                     FROM my_matches
                     """
                     if "puuid" in existing_columns
@@ -123,7 +132,7 @@ class DatabaseManager:
                         puuid, player_name, match_id, date, gamemode, map, agent,
                         win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
                         assists, score, kda, rank_before, rank_after, rankup,
-                        rr_before, rr_after
+                        rr_before, rr_after, season_id
                     )
                     SELECT
                         'legacy' AS puuid,
@@ -147,7 +156,8 @@ class DatabaseManager:
                         {rank_after_sql},
                         {rankup_sql},
                         {rr_before_sql},
-                        {rr_after_sql}
+                        {rr_after_sql},
+                        {season_id_sql}
                     FROM my_matches
                     """
                 )
@@ -182,6 +192,7 @@ class DatabaseManager:
                     rankup INTEGER DEFAULT 0,
                     rr_before INTEGER,
                     rr_after INTEGER,
+                    season_id TEXT,
                     UNIQUE(puuid, match_id)
                 )
                 """
@@ -216,9 +227,9 @@ class DatabaseManager:
                     puuid, player_name, match_id, date, gamemode, map, agent,
                     win_loss, rr_change, acs, kd, hs_percent, kills, deaths,
                     assists, score, kda, rank_before, rank_after, rankup,
-                    rr_before, rr_after
+                    rr_before, rr_after, season_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(puuid, match_id) DO UPDATE SET
                     player_name = excluded.player_name,
                     date = excluded.date,
@@ -239,7 +250,8 @@ class DatabaseManager:
                     rank_after = excluded.rank_after,
                     rankup = excluded.rankup,
                     rr_before = excluded.rr_before,
-                    rr_after = excluded.rr_after
+                    rr_after = excluded.rr_after,
+                    season_id = COALESCE(excluded.season_id, my_matches.season_id)
                 """,
                 (
                     match_data.get("puuid"),
@@ -263,7 +275,8 @@ class DatabaseManager:
                     match_data.get("rank_after"),
                     1 if match_data.get("rankup") else 0,
                     match_data.get("rr_before"),
-                    match_data.get("rr_after")
+                    match_data.get("rr_after"),
+                    match_data.get("season_id")
                 )
             )
             conn.commit()
@@ -368,7 +381,7 @@ class DatabaseManager:
                 SELECT
                     match_id, date, gamemode, map, agent, win_loss, rr_change,
                     acs, kd, hs_percent, kills, deaths, assists, score, kda,
-                    rank_before, rank_after, rankup, rr_before, rr_after
+                    rank_before, rank_after, rankup, rr_before, rr_after, season_id
                 FROM my_matches
                 WHERE puuid = ?
                 ORDER BY date DESC
@@ -409,8 +422,8 @@ class DatabaseManager:
                 (match_id, raw_json, datetime.datetime.now(datetime.timezone.utc).isoformat())
             )
             conn.commit()
-        except Exception as e:
-            print("DB ERROR CACHE DETAILS:", str(e))
+        except Exception:
+            logger.exception("Failed to cache match details")
         finally:
             conn.close()
 
@@ -425,9 +438,66 @@ class DatabaseManager:
                 (match_id,)
             ).fetchone()
             return row["raw_json"] if row else None
-        except Exception as e:
-            print("DB ERROR GET CACHED DETAILS:", str(e))
+        except Exception:
+            logger.exception("Failed to read cached match details")
             return None
         finally:
             conn.close()
 
+    def get_matches_missing_season_id(self, limit: int = 500) -> list[dict]:
+        """
+        Returns saved matches that still need an Act id.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT puuid, match_id, date, gamemode
+                FROM my_matches
+                WHERE season_id IS NULL OR season_id = ''
+                ORDER BY date DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception:
+            logger.exception("Failed to list matches missing season id")
+            return []
+        finally:
+            conn.close()
+
+    def update_match_season_id(self, match_id: str, season_id: str, puuid: str = "", overwrite: bool = False) -> bool:
+        """
+        Stores the Valorant Act id for an existing match row.
+        """
+        if not match_id or not season_id:
+            return False
+
+        conn = self._connect()
+        try:
+            params = [season_id, match_id]
+            where_clause = "match_id = ?"
+            if puuid:
+                where_clause += " AND puuid = ?"
+                params.append(puuid)
+
+            season_assignment = "season_id = ?"
+            if not overwrite:
+                where_clause += " AND (season_id IS NULL OR season_id = '')"
+
+            cursor = conn.execute(
+                f"""
+                UPDATE my_matches
+                SET {season_assignment}
+                WHERE {where_clause}
+                """,
+                params
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            logger.exception("Failed to update match season id")
+            return False
+        finally:
+            conn.close()

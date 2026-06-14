@@ -1,9 +1,10 @@
 import csv
 import re
 from collections import Counter, defaultdict
+from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 
@@ -30,24 +31,24 @@ RANK_NAMES = [
     "Radiant",
 ]
 
-CROP_BOX = (570, 520, 1985, 1435)
+CROP_BOX = (390, 300, 2170, 1420)
 SCALE = 2
 
 COLUMNS = {
-    "trs": (760, 920),
-    "acs": (950, 1090),
-    "k": (1125, 1235),
-    "d": (1255, 1370),
-    "a": (1385, 1495),
-    "plus_minus": (1510, 1630),
-    "kd": (1640, 1765),
-    "dda": (1780, 1910),
-    "adr": (1935, 2115),
-    "hs_percent": (2120, 2260),
-    "kast_percent": (2275, 2435),
-    "fk": (2440, 2555),
-    "fd": (2565, 2680),
-    "mk": (2690, 2820),
+    "trs": (960, 1145),
+    "acs": (1210, 1395),
+    "k": (1425, 1555),
+    "d": (1585, 1715),
+    "a": (1745, 1875),
+    "plus_minus": (1900, 2045),
+    "kd": (2070, 2205),
+    "dda": (2240, 2395),
+    "adr": (2445, 2630),
+    "hs_percent": (2665, 2835),
+    "kast_percent": (2870, 3040),
+    "fk": (3070, 3195),
+    "fd": (3230, 3355),
+    "mk": (3390, 3520),
 }
 
 
@@ -59,6 +60,10 @@ def center(box):
 
 def normalize_int(text: str):
     clean = re.sub(r"[^0-9+\-]", "", text or "")
+    if re.fullmatch(r"\d+-", clean):
+        clean = "-" + clean[:-1]
+    if re.fullmatch(r"\d+\+", clean):
+        clean = clean[:-1]
     if not clean or clean in {"+", "-"}:
         return None
     try:
@@ -70,6 +75,10 @@ def normalize_int(text: str):
 def normalize_float(text: str):
     clean = (text or "").replace(",", ".")
     clean = re.sub(r"[^0-9+\-.]", "", clean)
+    if re.fullmatch(r"\d+(?:\.\d+)?-", clean):
+        clean = "-" + clean[:-1]
+    if re.fullmatch(r"\d+(?:\.\d+)?\+", clean):
+        clean = clean[:-1]
     if not clean or clean in {"+", "-", "."}:
         return None
     try:
@@ -99,6 +108,20 @@ def normalize_rank(text: str) -> str:
         if compact in clean or compact.replace(" ", "") in clean.replace(" ", ""):
             return rank
     return ""
+
+
+def rank_index(rank_name: str) -> int:
+    for index, rank in enumerate(RANK_NAMES):
+        if rank.lower() in (rank_name or "").lower():
+            return index
+    return 0
+
+
+def average_rank_name(rank_names):
+    indexes = [rank_index(rank_name) for rank_name in rank_names if rank_index(rank_name) > 0]
+    if not indexes:
+        return ""
+    return RANK_NAMES[max(0, min(len(RANK_NAMES) - 1, round(sum(indexes) / len(indexes))))]
 
 
 def cell_text(items, y, key, max_distance=34):
@@ -165,10 +188,79 @@ def normalize_digit_component(component):
     return np.array(canvas) > 128
 
 
+@lru_cache(maxsize=1)
+def build_header_digit_templates():
+    font_paths = [
+        Path(r"C:\Windows\Fonts\impact.ttf"),
+        Path(r"C:\Windows\Fonts\bahnschrift.ttf"),
+        Path(r"C:\Windows\Fonts\segoeuib.ttf"),
+        Path(r"C:\Windows\Fonts\arialbd.ttf"),
+    ]
+    templates = {str(index): [] for index in range(10)}
+    for font_path in font_paths:
+        if not font_path.exists():
+            continue
+        for size in range(40, 90, 2):
+            try:
+                font = ImageFont.truetype(str(font_path), size)
+            except OSError:
+                continue
+            for digit in templates:
+                image = Image.new("L", (120, 140), 0)
+                draw = ImageDraw.Draw(image)
+                bbox = draw.textbbox((0, 0), digit, font=font)
+                draw.text(
+                    (
+                        (120 - (bbox[2] - bbox[0])) // 2 - bbox[0],
+                        (140 - (bbox[3] - bbox[1])) // 2 - bbox[1],
+                    ),
+                    digit,
+                    font=font,
+                    fill=255,
+                )
+                mask = np.array(image) > 128
+                ys, xs = np.where(mask)
+                if len(xs) == 0:
+                    continue
+                component = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+                templates[digit].append(normalize_digit_component(component))
+    return templates
+
+
 def digit_score(a, b):
     intersection = np.logical_and(a, b).sum()
     union = max(np.logical_or(a, b).sum(), 1)
     return np.mean(a != b) - 0.25 * (intersection / union)
+
+
+def recognize_header_digits(mask):
+    templates = build_header_digit_templates()
+    components = [
+        component
+        for component in digit_components(mask)
+        if component.shape[0] >= 18 and component.shape[1] >= 4 and int(component.sum()) >= 50
+    ]
+    if not components or len(components) > 2:
+        return None
+
+    digits = []
+    for component in components:
+        normalized = normalize_digit_component(component)
+        matches = []
+        for digit, digit_templates in templates.items():
+            for template in digit_templates:
+                matches.append((digit_score(normalized, template), digit))
+        if not matches:
+            return None
+        score, digit = min(matches, key=lambda item: item[0])
+        if score > 0.03:
+            return None
+        digits.append(digit)
+
+    try:
+        return int("".join(digits))
+    except ValueError:
+        return None
 
 
 def digit_features(component):
@@ -227,8 +319,6 @@ def geometric_digit(component):
             return "0"
         if features["aspect"] > 0.70 and features["midcol"] > 0.50 and features["fill"] < 0.56:
             return "4"
-        if features["midrow"] > 0.74:
-            return "9"
     return ""
 
 
@@ -290,6 +380,56 @@ def recognize_digit_cell(crop, row_y, key, templates):
         return None
 
 
+def recognize_signed_colored_cell(crop, row_y, key, templates):
+    cell = crop_cell(crop, row_y, key, 24, 46)
+    image = np.array(cell)
+    red_mask = (
+        (image[:, :, 0] > 150)
+        & (image[:, :, 1] < 150)
+        & (image[:, :, 2] < 170)
+    )
+    green_mask = (
+        (image[:, :, 1] > 140)
+        & (image[:, :, 2] > 100)
+        & (image[:, :, 0] < 130)
+    )
+    white_mask = (
+        (image[:, :, 0] > 170)
+        & (image[:, :, 1] > 170)
+        & (image[:, :, 2] > 170)
+    )
+    sign = -1 if red_mask.sum() > green_mask.sum() else 1
+    mask = red_mask | green_mask | white_mask
+    components = [
+        component
+        for component in digit_components(mask)
+        if component.shape[0] >= 12 and component.shape[1] >= 3
+    ]
+    if not components or len(components) > 3:
+        return None
+
+    digits = []
+    for component in components:
+        geometric = geometric_digit(component)
+        if geometric:
+            digits.append(geometric)
+            continue
+        normalized = normalize_digit_component(component)
+        matches = []
+        for digit, digit_templates in templates.items():
+            for template in digit_templates:
+                matches.append((digit_score(normalized, template), digit))
+        if not matches:
+            return None
+        score, digit = min(matches, key=lambda item: item[0])
+        if score > 0.12:
+            return None
+        digits.append(digit)
+
+    value = int("".join(digits))
+    return sign * value
+
+
 def cell_ocr_text(crop, ocr, row_y, key):
     cell = crop_cell(crop, row_y, key)
     cell = cell.resize((cell.width * 4, cell.height * 4), Image.Resampling.LANCZOS)
@@ -315,6 +455,11 @@ def parse_column_value(items, crop, ocr, row_y, key, templates):
     if value is not None:
         return value
 
+    if key in {"plus_minus", "dda"}:
+        value = recognize_signed_colored_cell(crop, row_y, key, templates)
+        if value is not None:
+            return value
+
     if key in {"trs", "acs", "k", "d", "a", "fk", "fd", "mk"}:
         value = recognize_digit_cell(crop, row_y, key, templates)
         if value is not None:
@@ -328,7 +473,31 @@ def parse_column_value(items, crop, ocr, row_y, key, templates):
     return normalize_int(text)
 
 
-def parse_header(items):
+def parse_color_scoreline(crop):
+    image = np.array(crop)
+    score_region = image[120:190, :, :]
+    left_region = score_region[:, 300:560, :]
+    right_region = score_region[:, 550:850, :]
+    left_mask = (
+        (left_region[:, :, 1] > 140)
+        & (left_region[:, :, 2] > 110)
+        & (left_region[:, :, 0] < 120)
+    )
+    right_mask = (
+        (right_region[:, :, 0] > 150)
+        & (right_region[:, :, 1] < 130)
+        & (right_region[:, :, 2] < 150)
+    )
+    left_score = recognize_header_digits(left_mask)
+    right_score = recognize_header_digits(right_mask)
+    if left_score is None or right_score is None:
+        return ""
+    if left_score + right_score > 50:
+        return ""
+    return f"{left_score}-{right_score}"
+
+
+def parse_header(items, crop):
     top_text = " ".join(item["text"] for item in items if item["cy"] < 180)
     map_name = ""
     for candidate in [
@@ -360,6 +529,8 @@ def parse_header(items):
     if candidates:
         _, _, left, right = sorted(candidates)[0]
         scoreline = f"{left}-{right}"
+    if not scoreline:
+        scoreline = parse_color_scoreline(crop)
 
     return map_name, scoreline
 
@@ -394,6 +565,37 @@ def row_team(row_y, team_headers):
     return active or {"team": "", "rank": "", "y": 0}
 
 
+def kd_error(kills, deaths, kd):
+    if deaths is None or deaths <= 0 or kd is None:
+        return 99.0
+    return abs(round(kills / deaths, 1) - float(kd))
+
+
+def reconcile_kda_values(values):
+    kills = values.get("k")
+    deaths = values.get("d")
+    plus_minus = values.get("plus_minus")
+    kd = values.get("kd")
+    if kills is None or deaths is None or plus_minus is None or kd is None:
+        return
+
+    candidates = []
+    candidates.append((kd_error(kills, deaths, kd), kills, deaths, kills - deaths))
+
+    derived_deaths = kills - plus_minus
+    if derived_deaths > 0:
+        candidates.append((kd_error(kills, derived_deaths, kd) + 0.02, kills, derived_deaths, plus_minus))
+
+    derived_kills = deaths + plus_minus
+    if derived_kills >= 0:
+        candidates.append((kd_error(derived_kills, deaths, kd) + 0.02, derived_kills, deaths, plus_minus))
+
+    _, best_kills, best_deaths, best_plus_minus = min(candidates, key=lambda item: item[0])
+    values["k"] = best_kills
+    values["d"] = best_deaths
+    values["plus_minus"] = best_plus_minus
+
+
 def parse_image(path: Path, ocr: RapidOCR):
     image = Image.open(path).convert("RGB")
     crop = image.crop(CROP_BOX)
@@ -412,7 +614,7 @@ def parse_image(path: Path, ocr: RapidOCR):
     if "Scoreboard" not in all_text or "TRS" not in all_text or "ACS" not in all_text:
         return [], "not_scoreboard"
 
-    map_name, scoreline = parse_header(items)
+    map_name, scoreline = parse_header(items, crop)
     if not scoreline:
         return [], "missing_scoreline"
 
@@ -425,15 +627,15 @@ def parse_image(path: Path, ocr: RapidOCR):
 
     trs_items = []
     for item in items:
-        if COLUMNS["trs"][0] <= item["cx"] <= COLUMNS["trs"][1] and 520 <= item["cy"] <= 1780:
+        if COLUMNS["trs"][0] <= item["cx"] <= COLUMNS["trs"][1] and 620 <= item["cy"] <= 2200:
             value = normalize_int(item["text"])
-            if value is not None and 50 <= value <= 999:
+            if value is not None and 50 <= value <= 1000:
                 trs_items.append(item)
 
     rows = []
     used_y = []
     for item in sorted(trs_items, key=lambda entry: entry["cy"]):
-        if any(abs(item["cy"] - y) < 45 for y in used_y):
+        if any(abs(item["cy"] - y) < 58 for y in used_y):
             continue
         used_y.append(item["cy"])
         rows.append(item["cy"])
@@ -466,6 +668,7 @@ def parse_image(path: Path, ocr: RapidOCR):
             values["k"] = values["d"] + values["plus_minus"]
         if values.get("d") is None and values.get("k") is not None and values.get("plus_minus") is not None:
             values["d"] = values["k"] - values["plus_minus"]
+        reconcile_kda_values(values)
 
         required = ["trs", "acs", "k", "d", "a", "plus_minus", "kd", "dda", "adr", "hs_percent", "kast_percent", "fk", "fd", "mk"]
         if any(values.get(key) is None for key in required):
@@ -497,6 +700,13 @@ def parse_image(path: Path, ocr: RapidOCR):
             "mk": values["mk"],
             "source_image": path.name,
         })
+
+    for team in {"A", "B"}:
+        team_rows = [row for row in parsed_rows if row["team"] == team]
+        computed_avg_rank = average_rank_name(row["player_rank"] for row in team_rows)
+        if computed_avg_rank:
+            for row in team_rows:
+                row["avg_rank"] = computed_avg_rank
 
     if len(parsed_rows) < 8:
         return parsed_rows, "too_few_rows"

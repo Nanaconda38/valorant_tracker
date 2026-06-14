@@ -7,6 +7,8 @@ let lastCareerData = null;
 let currentMatchDetailsData = null;
 let currentMatchDetailsTab = 'scoreboard';
 let currentPerformancePuuid = '';
+let appSettings = null;
+let configStatus = null;
 
 const RANKS = [
     "Unranked",
@@ -37,6 +39,18 @@ function formatGameMode(mode) {
         return 'TEAM DEATHMATCH';
     }
     return upper;
+}
+
+/**
+ * Updates an element's text content when it exists.
+ *
+ * @param {string} elementId Element id.
+ * @param {string|number} value Text value.
+ */
+function setText(elementId, value) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.textContent = value;
 }
 
 /**
@@ -177,6 +191,47 @@ function renderImage(src, alt, className = '') {
     }
     const classAttr = className ? ` class="${escapeHtml(className)}"` : '';
     return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${classAttr}>`;
+}
+
+const TRACKER_SCORE_BADGES = {
+    low: '/static/assets/tracker-score/trs-0-199.png',
+    bronze: '/static/assets/tracker-score/trs-200-399.png',
+    silver: '/static/assets/tracker-score/trs-400-599.png',
+    teal: '/static/assets/tracker-score/trs-600-799.png',
+    elite: '/static/assets/tracker-score/trs-800-999.png',
+    perfect: '/static/assets/tracker-score/trs-1000.png'
+};
+
+function getTrackerScoreBadge(score) {
+    const value = Number(score || 0);
+    if (value >= 1000) {
+        return { src: TRACKER_SCORE_BADGES.perfect, label: 'Perfect Tracker Score' };
+    }
+    if (value >= 800) {
+        return { src: TRACKER_SCORE_BADGES.elite, label: '800-999 Tracker Score' };
+    }
+    if (value >= 600) {
+        return { src: TRACKER_SCORE_BADGES.teal, label: '600-799 Tracker Score' };
+    }
+    if (value >= 400) {
+        return { src: TRACKER_SCORE_BADGES.silver, label: '400-599 Tracker Score' };
+    }
+    if (value >= 200) {
+        return { src: TRACKER_SCORE_BADGES.bronze, label: '200-399 Tracker Score' };
+    }
+    return { src: TRACKER_SCORE_BADGES.low, label: '0-199 Tracker Score' };
+}
+
+function renderTrackerScore(score, variant = 'compact') {
+    const value = Math.max(0, Math.round(Number(score || 0)));
+    const scoreClass = getScoreClass(value);
+    const badge = getTrackerScoreBadge(value);
+    return `
+        <span class="tracker-score-display tracker-score-${variant}">
+            ${renderImage(badge.src, badge.label, 'tracker-score-badge')}
+            <span class="tracker-score-number ${scoreClass}">${value}</span>
+        </span>
+    `;
 }
 
 /**
@@ -334,7 +389,7 @@ function renderPostMatchSummary(summary, status) {
                 </div>
                 <div class="post-match-stat">
                     <span class="stat-label">SCORE</span>
-                    <span class="stat-value">${summary.score || 0}</span>
+                    <span class="stat-value tracker-score-slot">${renderTrackerScore(summary.score || 0, 'medium')}</span>
                 </div>
                 <div class="post-match-stat">
                     <span class="stat-label">RR</span>
@@ -483,7 +538,9 @@ async function applyCareerFilter() {
     if (!lastCareerData) return;
     
     const filterSelect = document.getElementById('career-mode-filter');
+    const actFilterSelect = document.getElementById('career-act-filter');
     const activeFilter = filterSelect ? filterSelect.value : 'all';
+    const activeActFilter = actFilterSelect ? actFilterSelect.value : 'all';
     
     const setText = (id, value) => {
         const el = document.getElementById(id);
@@ -491,63 +548,281 @@ async function applyCareerFilter() {
             el.textContent = value;
         }
     };
+    const setTrackerScore = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.innerHTML = renderTrackerScore(value, 'medium');
+        }
+    };
+    const STAT_PERCENTILE_CURVES = {
+        winrate: [[35, 2], [40, 8], [45, 22], [50, 50], [55.2, 76], [60, 88], [66.7, 95], [80, 99.5]],
+        kd: [[0.7, 5], [0.85, 18], [1, 50], [1.15, 72], [1.3, 85], [1.45, 94], [1.59, 98.7], [2, 99.7], [2.47, 99.9]],
+        hs: [[10, 5], [15, 20], [20, 45], [25, 72], [29.1, 88], [35, 96], [40, 99]],
+        acs: [[150, 8], [180, 25], [200, 45], [225, 65], [250, 80], [275, 92], [293.6, 97.1], [330, 99], [368.9, 99.8]],
+        score: [[100, 1], [300, 15], [500, 40], [650, 62], [800, 80], [900, 92], [939, 97], [980, 99], [1000, 99.9]]
+    };
+    const percentileFromCurve = (value, curve) => {
+        if (!Number.isFinite(value) || !curve?.length) {
+            return null;
+        }
+        if (value <= curve[0][0]) {
+            return curve[0][1];
+        }
+        for (let index = 1; index < curve.length; index++) {
+            const [x1, y1] = curve[index - 1];
+            const [x2, y2] = curve[index];
+            if (value <= x2) {
+                const t = (value - x1) / Math.max(x2 - x1, 0.0001);
+                return y1 + ((y2 - y1) * t);
+            }
+        }
+        return curve[curve.length - 1][1];
+    };
+    const formatPercentileRank = (percentile) => {
+        if (!Number.isFinite(percentile)) {
+            return 'N/A';
+        }
+        if (percentile >= 50) {
+            const top = Math.max(0.1, 100 - percentile);
+            return `Top ${top < 10 ? top.toFixed(1) : Math.round(top)}%`;
+        }
+        return `Bottom ${percentile < 10 ? percentile.toFixed(1) : Math.round(percentile)}%`;
+    };
+    const progressColorFromPercentile = (percentile) => {
+        if (!Number.isFinite(percentile)) {
+            return 'rgba(139, 155, 180, 0.35)';
+        }
+        const stops = [
+            [0, [255, 70, 85]],
+            [35, [255, 139, 76]],
+            [55, [246, 211, 101]],
+            [75, [78, 226, 184]],
+            [100, [0, 240, 255]]
+        ];
+        const clamped = Math.max(0, Math.min(100, percentile));
+        for (let index = 1; index < stops.length; index++) {
+            const [prevPoint, prevColor] = stops[index - 1];
+            const [nextPoint, nextColor] = stops[index];
+            if (clamped <= nextPoint) {
+                const t = (clamped - prevPoint) / Math.max(nextPoint - prevPoint, 0.0001);
+                const color = prevColor.map((channel, channelIndex) => (
+                    Math.round(channel + ((nextColor[channelIndex] - channel) * t))
+                ));
+                return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+            }
+        }
+        return 'rgb(0, 240, 255)';
+    };
+    const setStatPercentile = (prefix, metric, value) => {
+        const labelEl = document.getElementById(`${prefix}-rank`);
+        const progressEl = document.getElementById(`${prefix}-progress`);
+        const percentile = percentileFromCurve(Number(value), STAT_PERCENTILE_CURVES[metric]);
+        if (labelEl) {
+            labelEl.textContent = formatPercentileRank(percentile);
+        }
+        if (progressEl) {
+            const fill = Number.isFinite(percentile) ? Math.max(1, Math.min(100, percentile)) : 0;
+            progressEl.style.height = `${fill}%`;
+            progressEl.className = '';
+            if (!Number.isFinite(percentile)) {
+                progressEl.style.background = '';
+                progressEl.style.color = '';
+                return;
+            }
+            const progressColor = progressColorFromPercentile(percentile);
+            progressEl.style.background = progressColor;
+            progressEl.style.color = progressColor;
+        }
+    };
+    const setProfileScoreBreakdown = (breakdown) => {
+        const el = document.getElementById('career-score-breakdown');
+        if (!el) {
+            return;
+        }
+        if (!breakdown || !breakdown.available) {
+            el.innerHTML = `
+                <span><b>RW</b> N/A</span>
+                <span><b>KAST</b> N/A</span>
+                <span><b>ACS</b> N/A</span>
+                <span><b>DDA</b> N/A</span>
+            `;
+            return;
+        }
+        el.innerHTML = `
+            <span title="Round Win %"><b>RW</b> ${breakdown.roundWinPercent.toFixed(1)}%</span>
+            <span title="Kill, Assist, Survive, Trade"><b>KAST</b> ${breakdown.avgKast.toFixed(1)}%</span>
+            <span title="Average Combat Score"><b>ACS</b> ${Math.round(breakdown.avgAcs)}</span>
+            <span title="Damage Delta / Round"><b>DDA</b> ${breakdown.avgDda >= 0 ? '+' : ''}${breakdown.avgDda.toFixed(1)}</span>
+        `;
+    };
+    const averagePageTrackerScore = (pageMatches) => {
+        const scores = pageMatches
+            .map(match => match.tracker_score)
+            .filter(score => score !== undefined && score !== null && Number.isFinite(Number(score)))
+            .map(score => Number(score));
+        if (!scores.length) {
+            return 0;
+        }
+        return Math.round(scores.reduce((total, score) => total + score, 0) / scores.length);
+    };
+    const profileComponentScore = (value, points) => {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        if (value <= points[0][0]) {
+            return points[0][1];
+        }
+        for (let index = 1; index < points.length; index++) {
+            const [x1, y1] = points[index - 1];
+            const [x2, y2] = points[index];
+            if (value <= x2) {
+                const t = (value - x1) / Math.max(x2 - x1, 0.0001);
+                return y1 + ((y2 - y1) * t);
+            }
+        }
+        return points[points.length - 1][1];
+    };
+    const calculatePageProfileTrackerBreakdown = (pageMatches) => {
+        const scoredMatches = pageMatches.filter(match => (
+            match.tracker_score !== undefined
+            && match.tracker_score !== null
+            && Number.isFinite(Number(match.tracker_score))
+        ));
+        if (!scoredMatches.length) {
+            return { score: 0, available: false, reason: 'no_scored_matches' };
+        }
+
+        const totalTeamRounds = scoredMatches.reduce((total, match) => total + Number(match.team_rounds || 0), 0);
+        const totalEnemyRounds = scoredMatches.reduce((total, match) => total + Number(match.enemy_rounds || 0), 0);
+        const roundWinPercent = (totalTeamRounds + totalEnemyRounds) > 0
+            ? (totalTeamRounds / (totalTeamRounds + totalEnemyRounds)) * 100
+            : (scoredMatches.filter(match => match.win_loss === 'WIN' || match.won).length / scoredMatches.length) * 100;
+
+        const averageNumeric = (field) => {
+            const values = scoredMatches
+                .map(match => Number(match[field]))
+                .filter(value => Number.isFinite(value));
+            if (!values.length) {
+                return null;
+            }
+            return values.reduce((total, value) => total + value, 0) / values.length;
+        };
+
+        const avgKast = averageNumeric('kast');
+        const avgDda = averageNumeric('dda');
+        const avgAcs = averageNumeric('acs');
+        if (avgKast === null || avgDda === null || avgAcs === null) {
+            return {
+                score: averagePageTrackerScore(scoredMatches),
+                available: false,
+                reason: 'missing_profile_metrics'
+            };
+        }
+
+        const roundWinScore = profileComponentScore(roundWinPercent, [
+            [45, 250], [48, 430], [50, 580], [52, 740], [55, 900], [60, 980], [65, 1000]
+        ]);
+        const kastScore = profileComponentScore(avgKast, [
+            [68, 250], [70, 420], [72, 620], [74, 780], [76, 880], [78, 950], [80, 990], [83, 1000]
+        ]);
+        const acsScore = profileComponentScore(avgAcs, [
+            [180, 250], [200, 420], [215, 560], [240, 720], [265, 840], [295, 920], [330, 975], [370, 1000]
+        ]);
+        const ddaScore = profileComponentScore(avgDda, [
+            [-25, 180], [-10, 400], [0, 520], [10, 660], [25, 780], [45, 860], [55, 920], [80, 970], [110, 995]
+        ]);
+
+        const rawScore = (
+            (roundWinScore * 0.1)
+            + (kastScore * 0.15)
+            + (acsScore * 0.2)
+            + (ddaScore * 0.55)
+        );
+        const calibratedScore = -49.4711601 + (1.08650119 * rawScore);
+        return {
+            score: Math.max(100, Math.min(1000, Math.round(calibratedScore))),
+            available: true,
+            matchCount: scoredMatches.length,
+            roundWinPercent,
+            avgKast,
+            avgAcs,
+            avgDda,
+            components: {
+                roundWinScore,
+                kastScore,
+                acsScore,
+                ddaScore
+            }
+        };
+    };
     
     const matches = lastCareerData.recent_matches || [];
     
-    // Filter matches
     const filteredMatches = matches.filter(match => {
-        if (activeFilter === 'all') return true;
-        return (match.gamemode || '').trim().toLowerCase() === activeFilter;
+        const modeMatches = activeFilter === 'all'
+            || (match.gamemode || '').trim().toLowerCase() === activeFilter;
+        const actMatches = activeActFilter === 'all'
+            || (match.season_id || '') === activeActFilter;
+        return modeMatches && actMatches;
     });
+    const rankedSummaryMatches = matches.filter(match => {
+        const isCompetitive = (match.gamemode || '').trim().toLowerCase() === 'competitive';
+        const actMatches = activeActFilter === 'all'
+            || (match.season_id || '') === activeActFilter;
+        return isCompetitive && actMatches;
+    });
+    const profileScoreBreakdown = calculatePageProfileTrackerBreakdown(rankedSummaryMatches);
+    const rankedSummary = rankedSummaryMatches.reduce((summary, match) => {
+        const kills = Number(match.kills || 0);
+        const deaths = Number(match.deaths || 0);
+        summary.matches += 1;
+        summary.wins += (match.win_loss === 'WIN' || match.won) ? 1 : 0;
+        summary.rrDelta += Number(match.rr_change || 0);
+        summary.totalACS += Number(match.acs || 0);
+        summary.totalHS += Number(match.hs_percent || 0);
+        summary.totalKills += kills;
+        summary.totalDeaths += deaths;
+        return summary;
+    }, {
+        matches: 0,
+        wins: 0,
+        rrDelta: 0,
+        totalACS: 0,
+        totalHS: 0,
+        totalKills: 0,
+        totalDeaths: 0
+    });
+    const rankedCount = rankedSummary.matches;
+    const rankedWinRate = rankedCount ? (rankedSummary.wins / rankedCount) * 100 : 0;
+    const rankedACS = rankedCount ? Math.round(rankedSummary.totalACS / rankedCount) : 0;
+    const rankedKD = rankedCount ? rankedSummary.totalKills / Math.max(rankedSummary.totalDeaths, 1) : 0;
+    const rankedHS = rankedCount ? rankedSummary.totalHS / rankedCount : 0;
     
-    // Update Stats Card Grid
-    if (activeFilter === 'all') {
-        const rrDelta = Number(lastCareerData.rr_delta || 0);
-        setText('career-player', lastCareerData.player_name || 'No account loaded');
-        setText('career-matches', lastCareerData.matches || 0);
-        setText('career-winrate', `${Number(lastCareerData.win_rate || 0).toFixed(1)}%`);
-        setText('career-kd', Number(lastCareerData.avg_kd || 0).toFixed(2));
-        setText('career-hs', `${Number(lastCareerData.avg_hs_percent || 0).toFixed(1)}%`);
-        setText('career-acs', lastCareerData.avg_acs || 0);
-        setText('career-score', lastCareerData.tracker_score || 0);
-        setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
+    setText('career-player', lastCareerData.player_name || 'No account loaded');
+    setText('career-matches', rankedCount);
+    setText('career-winrate', `${rankedWinRate.toFixed(1)}%`);
+    setText('career-kd', rankedKD.toFixed(2));
+    setText('career-hs', `${rankedHS.toFixed(1)}%`);
+    setText('career-acs', rankedACS);
+    setTrackerScore('career-score', profileScoreBreakdown.score);
+    setProfileScoreBreakdown(profileScoreBreakdown);
+    setText('career-rr', `${rankedSummary.rrDelta >= 0 ? '+' : ''}${rankedSummary.rrDelta}`);
+    if (rankedCount) {
+        setStatPercentile('career-winrate', 'winrate', rankedWinRate);
+        setStatPercentile('career-kd', 'kd', rankedKD);
+        setStatPercentile('career-hs', 'hs', rankedHS);
+        setStatPercentile('career-acs', 'acs', rankedACS);
+        setStatPercentile('career-score', 'score', profileScoreBreakdown.score);
     } else {
-        const count = filteredMatches.length;
-        let wins = 0;
-        let rrDelta = 0;
-        let totalACS = 0;
-        let totalKD = 0;
-        let totalHS = 0;
-        
-        filteredMatches.forEach(m => {
-            if (m.win_loss === 'WIN' || m.won) {
-                wins++;
+        ['career-winrate', 'career-kd', 'career-hs', 'career-acs', 'career-score'].forEach(prefix => {
+            const labelEl = document.getElementById(`${prefix}-rank`);
+            const progressEl = document.getElementById(`${prefix}-progress`);
+            if (labelEl) labelEl.textContent = 'N/A';
+            if (progressEl) {
+                progressEl.style.height = '0%';
+                progressEl.className = '';
             }
-            rrDelta += Number(m.rr_change || 0);
-            totalACS += Number(m.acs || 0);
-            totalKD += Number(m.kd || 0);
-            totalHS += Number(m.hs_percent || 0);
         });
-        
-        const winRate = count ? ((wins / count) * 100).toFixed(1) : '0.0';
-        const avgACS = count ? Math.round(totalACS / count) : 0;
-        const avgKD = count ? (totalKD / count).toFixed(2) : '0.00';
-        const avgHS = count ? (totalHS / count).toFixed(1) : '0.0';
-        
-        let trackerScore = 0;
-        if (count) {
-            const currentRank = lastCareerData.current_rank || 'Unranked';
-            trackerScore = await calculateTrackerScore(Number(avgKD), Number(avgHS), avgACS, currentRank, currentRank);
-        }
-        
-        setText('career-player', lastCareerData.player_name || 'No account loaded');
-        setText('career-matches', count);
-        setText('career-winrate', `${winRate}%`);
-        setText('career-kd', avgKD);
-        setText('career-hs', `${avgHS}%`);
-        setText('career-acs', avgACS);
-        setText('career-score', trackerScore);
-        setText('career-rr', `${rrDelta >= 0 ? '+' : ''}${rrDelta}`);
     }
     
     // Update player rank in UI
@@ -566,7 +841,7 @@ async function applyCareerFilter() {
     if (filteredMatches.length === 0) {
         historyEl.innerHTML = `
             <div class="empty-state-card">
-                <span class="empty-state-text">No matches found for this mode</span>
+                <span class="empty-state-text">No matches found for these filters</span>
             </div>
         `;
     } else {
@@ -621,6 +896,51 @@ function renderCareer(career) {
             filterSelect.value = 'all';
         }
     }
+
+    const actFilterSelect = document.getElementById('career-act-filter');
+    if (actFilterSelect) {
+        const previousSelection = actFilterSelect.value || 'all';
+        const seasonOptions = Array.isArray(career.season_options) ? career.season_options : [];
+        const fallbackSeasonMap = new Map();
+        matches.forEach(match => {
+            if (match.season_id && !fallbackSeasonMap.has(match.season_id)) {
+                fallbackSeasonMap.set(match.season_id, {
+                    id: match.season_id,
+                    label: match.season_label || `ACT ${String(match.season_id).slice(0, 8).toUpperCase()}`,
+                    count: 1
+                });
+            } else if (match.season_id) {
+                const option = fallbackSeasonMap.get(match.season_id);
+                option.count = Number(option.count || 0) + 1;
+            }
+        });
+        const actOptions = seasonOptions.length ? seasonOptions : Array.from(fallbackSeasonMap.values());
+        const newActValues = ['all', ...actOptions.map(option => option.id)];
+        const currentActValues = Array.from(actFilterSelect.options).map(option => option.value);
+
+        if (JSON.stringify(currentActValues) !== JSON.stringify(newActValues)) {
+            actFilterSelect.innerHTML = '';
+
+            const allOpt = document.createElement('option');
+            allOpt.value = 'all';
+            allOpt.textContent = 'ALL ACTS';
+            actFilterSelect.appendChild(allOpt);
+
+            actOptions.forEach(option => {
+                const opt = document.createElement('option');
+                opt.value = option.id;
+                const count = Number(option.count || 0);
+                opt.textContent = count ? `${option.label} (${count})` : option.label;
+                actFilterSelect.appendChild(opt);
+            });
+        }
+
+        if (newActValues.includes(previousSelection)) {
+            actFilterSelect.value = previousSelection;
+        } else {
+            actFilterSelect.value = 'all';
+        }
+    }
     
     // 2. Apply the current filter and render stats & history
     applyCareerFilter();
@@ -637,6 +957,7 @@ function renderCareerMatch(match) {
     const resultClass = won ? 'victory' : 'defeat';
     const resultText = won ? 'VICTORY' : 'DEFEAT';
     const rr = Number(match.rr_change || 0);
+    const matchScore = match.tracker_score;
     const bannerStyle = match.map_banner_url ? ` style="background-image: url('${escapeHtml(match.map_banner_url)}')"` : '';
     const rankHtml = match.rankup ? `
         <div class="career-match-rank">
@@ -671,6 +992,7 @@ function renderCareerMatch(match) {
                     <span class="stat-box"><span class="stat-label">KD</span><span class="stat-value">${Number(match.kd || 0).toFixed(2)}</span></span>
                     <span class="stat-box"><span class="stat-label">HS%</span><span class="stat-value">${Number(match.hs_percent || 0).toFixed(1)}%</span></span>
                     <span class="stat-box"><span class="stat-label">ACS</span><span class="stat-value">${match.acs || 0}</span></span>
+                    ${matchScore !== undefined && matchScore !== null ? `<span class="stat-box tracker-score-box"><span class="stat-label">TRS</span><span class="stat-value tracker-score-slot">${renderTrackerScore(matchScore, 'compact')}</span></span>` : ''}
                 </div>
             </div>
         </div>
@@ -767,7 +1089,6 @@ async function openMatchDetailsModal(matchId) {
  * @return {string} HTML markup.
  */
 function renderLeaderboardPlayerCard(player) {
-    const scoreClass = getScoreClass(player.score);
     const selfClass = player.is_self ? ' self-card' : '';
     const agentInitial = player.agent ? player.agent.charAt(0) : 'U';
     
@@ -809,7 +1130,7 @@ function renderLeaderboardPlayerCard(player) {
                 </div>
                 <div class="stat-box tracker-score-box">
                     <span class="stat-label">SCORE</span>
-                    <span class="stat-value ${scoreClass}">${player.score}</span>
+                    <span class="stat-value tracker-score-slot">${renderTrackerScore(player.score || 0, 'compact')}</span>
                 </div>
             </div>
         </div>
@@ -890,14 +1211,16 @@ function renderScoreboardTeam(label, players, side) {
     const rows = players.map(player => `
         <tr class="${player.is_self ? 'self-row' : ''}">
             <td class="score-player-cell">
-                <div class="score-player-avatar">${player.agent_icon_url ? renderImage(player.agent_icon_url, player.agent || 'Agent') : ''}</div>
-                <div>
-                    <div class="score-player-name">${escapeHtml(player.name)}</div>
-                    <div class="score-player-sub">${escapeHtml(player.agent)} / ${escapeHtml(player.rank)}</div>
+                <div class="score-player-inner">
+                    <div class="score-player-avatar">${player.agent_icon_url ? renderImage(player.agent_icon_url, player.agent || 'Agent') : ''}</div>
+                    <div>
+                        <div class="score-player-name">${escapeHtml(player.name)}</div>
+                        <div class="score-player-sub">${escapeHtml(player.agent)} / ${escapeHtml(player.rank)}</div>
+                    </div>
                 </div>
             </td>
             <td>${player.rank_icon_url ? renderImage(player.rank_icon_url, player.rank || 'Rank', 'rank-icon') : ''}</td>
-            <td>${player.score || 0}</td>
+            <td class="score-trs-cell">${renderTrackerScore(player.score || 0, 'table')}</td>
             <td class="highlight-cell">${player.acs || 0}</td>
             <td>${player.kills || 0}</td>
             <td>${player.deaths || 0}</td>
@@ -1313,7 +1636,6 @@ function renderPlayerList(players, isAllies) {
         }
         
         const scoreVal = player.score !== undefined ? player.score : 600;
-        const scoreClass = getScoreClass(scoreVal);
         const statHtml = `
                 <div class="stat-box">
                     <span class="stat-label">KD</span>
@@ -1329,7 +1651,7 @@ function renderPlayerList(players, isAllies) {
                 </div>
                 <div class="stat-box tracker-score-box">
                     <span class="stat-label">SCORE</span>
-                    <span class="stat-value ${scoreClass}">${scoreVal}</span>
+                    <span class="stat-value tracker-score-slot">${renderTrackerScore(scoreVal, 'compact')}</span>
                 </div>
         `;
         
@@ -1365,9 +1687,272 @@ function renderPlayerList(players, isAllies) {
 }
 
 /**
+ * Sends a JSON request to the backend and returns the JSON payload.
+ *
+ * @param {string} url API endpoint.
+ * @param {Object} options Fetch options.
+ * @return {Promise<Object>} JSON payload.
+ */
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+        }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.message || `Request failed with ${response.status}`);
+    }
+    return data;
+}
+
+/**
+ * Updates a status message element with an optional state class.
+ *
+ * @param {string} elementId Element id.
+ * @param {string} message Message to display.
+ * @param {string} state success, warning, error, or empty.
+ */
+function setConfigMessage(elementId, message, state = '') {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.className = 'config-status-message';
+    if (state) {
+        element.classList.add(state);
+    }
+    element.textContent = message || '';
+}
+
+/**
+ * Shows or hides a modal-style overlay.
+ *
+ * @param {string} elementId Overlay id.
+ * @param {boolean} visible Whether the overlay should be visible.
+ */
+function setOverlayVisible(elementId, visible) {
+    const overlay = document.getElementById(elementId);
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', !visible);
+}
+
+/**
+ * Reads local settings and config status from the backend.
+ */
+async function refreshConfigState() {
+    const [settings, status] = await Promise.all([
+        fetchJson('/api/settings'),
+        fetchJson('/api/config/status')
+    ]);
+    appSettings = settings;
+    configStatus = status;
+    renderSettingsState();
+    return { settings, status };
+}
+
+/**
+ * Initializes onboarding visibility and settings state.
+ */
+async function initConfigUi() {
+    try {
+        const { settings, status } = await refreshConfigState();
+        const hasKey = Boolean(status?.henrik_api?.has_key);
+        const firstLaunchDone = Boolean(settings?.app?.first_launch_completed);
+        setOverlayVisible('onboarding-overlay', !hasKey && !firstLaunchDone);
+    } catch (error) {
+        setConfigMessage('onboarding-status', 'Unable to load local configuration.', 'error');
+    }
+}
+
+/**
+ * Renders settings controls from the latest settings/config payloads.
+ */
+function renderSettingsState() {
+    if (!appSettings || !configStatus) return;
+    const apiState = document.getElementById('settings-api-state');
+    const hasKey = Boolean(configStatus?.henrik_api?.has_key);
+    if (apiState) {
+        apiState.textContent = hasKey ? 'Configured' : 'Missing';
+        apiState.classList.toggle('connected', hasKey);
+        apiState.classList.toggle('missing', !hasKey);
+    }
+
+    setText('settings-version', `v${appSettings?.app?.version || '0.1.0'}`);
+    const debugToggle = document.getElementById('settings-debug');
+    const launchWindowsToggle = document.getElementById('settings-launch-windows');
+    const launchValorantToggle = document.getElementById('settings-launch-valorant');
+    if (debugToggle) debugToggle.checked = Boolean(appSettings?.app?.debug);
+    if (launchWindowsToggle) launchWindowsToggle.checked = Boolean(appSettings?.startup?.launch_on_windows_start);
+    if (launchValorantToggle) launchValorantToggle.checked = Boolean(appSettings?.startup?.launch_when_valorant_starts);
+}
+
+/**
+ * Verifies and optionally saves a HenrikDev API key.
+ *
+ * @param {string} inputId Input element id.
+ * @param {string} statusId Status element id.
+ * @param {boolean} save Whether the key should be saved after verification.
+ */
+async function handleHenrikKey(inputId, statusId, save) {
+    const input = document.getElementById(inputId);
+    const apiKey = input?.value?.trim() || '';
+    if (!apiKey) {
+        setConfigMessage(statusId, 'Paste a HenrikDev API key first.', 'warning');
+        return;
+    }
+    const endpoint = save ? '/api/config/henrik-key' : '/api/config/henrik-key/verify';
+    setConfigMessage(statusId, save ? 'Verifying and saving...' : 'Verifying key...');
+    try {
+        const result = await fetchJson(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ api_key: apiKey })
+        });
+        if (!result.valid) {
+            setConfigMessage(statusId, result.message || 'HenrikDev key was rejected.', 'error');
+            return;
+        }
+        if (save) {
+            if (input) input.value = '';
+            await fetchJson('/api/settings/first-launch-completed', { method: 'POST' });
+            await refreshConfigState();
+            setOverlayVisible('onboarding-overlay', false);
+            setConfigMessage(statusId, 'HenrikDev key saved locally.', 'success');
+        } else {
+            setConfigMessage(statusId, result.message || 'HenrikDev key is valid.', 'success');
+        }
+    } catch (error) {
+        setConfigMessage(statusId, error.message || 'Unable to verify HenrikDev key.', 'error');
+    }
+}
+
+/**
+ * Saves a small non-sensitive settings patch.
+ *
+ * @param {Object} patch Settings patch.
+ * @param {string} statusId Optional status element id.
+ */
+async function updateLocalSettings(patch, statusId = '') {
+    try {
+        appSettings = await fetchJson('/api/settings', {
+            method: 'PATCH',
+            body: JSON.stringify(patch)
+        });
+        renderSettingsState();
+        if (statusId) {
+            if (appSettings?.startup_status?.error) {
+                setConfigMessage(statusId, appSettings.startup_status.error, 'error');
+            } else {
+                setConfigMessage(statusId, 'Settings saved.', 'success');
+            }
+        }
+    } catch (error) {
+        if (statusId) {
+            setConfigMessage(statusId, error.message || 'Unable to save settings.', 'error');
+        }
+    }
+}
+
+/**
+ * Wires onboarding and settings controls.
+ */
+function bindConfigUi() {
+    const settingsOpenButton = document.getElementById('settings-open-button');
+    const settingsCloseButton = document.getElementById('settings-close-button');
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsOpenButton) {
+        settingsOpenButton.addEventListener('click', async () => {
+            await refreshConfigState();
+            setOverlayVisible('settings-modal', true);
+        });
+    }
+    if (settingsCloseButton) {
+        settingsCloseButton.addEventListener('click', () => setOverlayVisible('settings-modal', false));
+    }
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (event) => {
+            if (event.target === settingsModal) {
+                setOverlayVisible('settings-modal', false);
+            }
+        });
+    }
+
+    const onboardingSaveButton = document.getElementById('onboarding-save-button');
+    if (onboardingSaveButton) {
+        onboardingSaveButton.addEventListener('click', () => handleHenrikKey('onboarding-api-key', 'onboarding-status', true));
+    }
+    const onboardingSkipButton = document.getElementById('onboarding-skip-button');
+    if (onboardingSkipButton) {
+        onboardingSkipButton.addEventListener('click', async () => {
+            await fetchJson('/api/settings/first-launch-completed', { method: 'POST' });
+            await refreshConfigState();
+            setConfigMessage('onboarding-status', 'Continuing without HenrikDev. Live scouting stats will be limited.', 'warning');
+            setOverlayVisible('onboarding-overlay', false);
+        });
+    }
+
+    const settingsSaveKeyButton = document.getElementById('settings-save-key-button');
+    if (settingsSaveKeyButton) {
+        settingsSaveKeyButton.addEventListener('click', () => handleHenrikKey('settings-api-key', 'settings-key-status', true));
+    }
+    const settingsVerifyKeyButton = document.getElementById('settings-verify-key-button');
+    if (settingsVerifyKeyButton) {
+        settingsVerifyKeyButton.addEventListener('click', () => handleHenrikKey('settings-api-key', 'settings-key-status', false));
+    }
+    const settingsDeleteKeyButton = document.getElementById('settings-delete-key-button');
+    if (settingsDeleteKeyButton) {
+        settingsDeleteKeyButton.addEventListener('click', async () => {
+            const confirmed = window.confirm('Delete the locally saved HenrikDev API key?');
+            if (!confirmed) return;
+            try {
+                await fetchJson('/api/config/henrik-key', { method: 'DELETE' });
+                await refreshConfigState();
+                setConfigMessage('settings-key-status', 'HenrikDev key deleted.', 'success');
+            } catch (error) {
+                setConfigMessage('settings-key-status', error.message || 'Unable to delete key.', 'error');
+            }
+        });
+    }
+
+    const debugToggle = document.getElementById('settings-debug');
+    if (debugToggle) {
+        debugToggle.addEventListener('change', () => updateLocalSettings({ app: { debug: debugToggle.checked } }, 'settings-runtime-status'));
+    }
+    const launchWindowsToggle = document.getElementById('settings-launch-windows');
+    if (launchWindowsToggle) {
+        launchWindowsToggle.addEventListener('change', () => updateLocalSettings({ startup: { launch_on_windows_start: launchWindowsToggle.checked } }, 'settings-runtime-status'));
+    }
+    const launchValorantToggle = document.getElementById('settings-launch-valorant');
+    if (launchValorantToggle) {
+        launchValorantToggle.addEventListener('change', () => updateLocalSettings({ startup: { launch_when_valorant_starts: launchValorantToggle.checked } }, 'settings-runtime-status'));
+    }
+
+    const actionMap = [
+        ['settings-open-data-button', '/api/settings/open-data-folder', 'Opening data folder...'],
+        ['settings-open-logs-button', '/api/settings/open-logs-folder', 'Opening logs folder...'],
+        ['settings-reload-cache-button', '/api/settings/reload-cache', 'Reloading cache...']
+    ];
+    actionMap.forEach(([buttonId, endpoint, pendingMessage]) => {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        button.addEventListener('click', async () => {
+            setConfigMessage('settings-runtime-status', pendingMessage);
+            try {
+                await fetchJson(endpoint, { method: 'POST' });
+                await refreshConfigState();
+                setConfigMessage('settings-runtime-status', 'Done.', 'success');
+            } catch (error) {
+                setConfigMessage('settings-runtime-status', error.message || 'Action failed.', 'error');
+            }
+        });
+    });
+}
+
+/**
  * Initializes the dashboard application.
  */
 function init() {
+    bindConfigUi();
     const importButton = document.getElementById('career-import-button');
     if (importButton) {
         importButton.addEventListener('click', importCompetitiveHistory);
@@ -1375,6 +1960,10 @@ function init() {
     const filterSelect = document.getElementById('career-mode-filter');
     if (filterSelect) {
         filterSelect.addEventListener('change', applyCareerFilter);
+    }
+    const actFilterSelect = document.getElementById('career-act-filter');
+    if (actFilterSelect) {
+        actFilterSelect.addEventListener('change', applyCareerFilter);
     }
     
     // Career match card click listener
@@ -1429,6 +2018,7 @@ function init() {
     }
     
     fetchSessionStatus();
+    initConfigUi();
     setInterval(fetchSessionStatus, 3000);
 }
 

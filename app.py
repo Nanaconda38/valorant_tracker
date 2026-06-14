@@ -10,22 +10,32 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from app_logging import configure_logging, get_logger
+from app_paths import cache_dir, ensure_runtime_dirs, logs_dir, resource_path, runtime_path, user_data_dir
 from asset_manager import AssetManager
+from autostart_manager import startup_status, sync_startup_settings
 from database import DatabaseManager
+from secrets_manager import HenrikSecretManager, SecretStorageError
+from settings_manager import SettingsManager
 from data.predict_trs_generated import predict_trs_raw
 
-load_dotenv()
+ensure_runtime_dirs()
+configure_logging()
+logger = get_logger(__name__)
+if os.getenv("VALORANT_TRACKER_SKIP_DOTENV") != "1":
+    load_dotenv(resource_path(".env"))
 
-HENRIK_API_KEY = os.getenv("HENRIK_API_KEY", "").strip() or None
 SESSION_STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 app = FastAPI(title="Valorant Local Tracker")
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(resource_path("static"))), name="static")
 
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(resource_path("templates")))
 asset_manager = AssetManager()
 db_manager = DatabaseManager()
+settings_manager = SettingsManager()
+henrik_secret_manager = HenrikSecretManager()
 
 tracker_state = {
     "status": "offline",
@@ -55,6 +65,179 @@ stats_cache_context = {
     "queue_id": tracker_state["queue_id"],
     "map_id": tracker_state["map_id"]
 }
+season_catalog_cache = {
+    "loaded": False,
+    "acts": {}
+}
+
+
+def get_henrik_api_key() -> str | None:
+    """
+    Reads the HenrikDev key from local secret storage or dev environment.
+    """
+    try:
+        return henrik_secret_manager.get_key()
+    except SecretStorageError as exc:
+        logger.error("Henrik secret storage error: %s", exc)
+        return None
+
+
+def normalize_henrik_api_key(api_key: str) -> str:
+    """
+    Normalizes user-pasted HenrikDev keys without exposing their value.
+    """
+    cleaned_key = (api_key or "").strip()
+    if cleaned_key.lower().startswith("bearer "):
+        return cleaned_key[7:].strip()
+    return cleaned_key
+
+
+async def verify_henrik_api_key(api_key: str) -> dict:
+    """
+    Verifies that a HenrikDev key is accepted by the API.
+    """
+    cleaned_key = normalize_henrik_api_key(api_key)
+    if not cleaned_key:
+        return {
+            "status": "error",
+            "valid": False,
+            "reason": "empty_key",
+            "message": "HenrikDev API key is empty."
+        }
+
+    headers = {"Authorization": cleaned_key}
+    probe_puuid = "00000000-0000-0000-0000-000000000000"
+    probe_url = f"https://api.henrikdev.xyz/valorant/v3/by-puuid/mmr/eu/pc/{probe_puuid}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(probe_url, headers=headers)
+    except httpx.RequestError:
+        return {
+            "status": "error",
+            "valid": False,
+            "reason": "api_unreachable",
+            "message": "HenrikDev API did not respond."
+        }
+
+    if response.status_code in {401, 403}:
+        return {
+            "status": "error",
+            "valid": False,
+            "reason": "invalid_key",
+            "message": "HenrikDev API key was rejected."
+        }
+    if response.status_code == 429:
+        return {
+            "status": "error",
+            "valid": False,
+            "reason": "rate_limited",
+            "message": "HenrikDev API rate limit reached. Try again later."
+        }
+    if response.status_code >= 500:
+        return {
+            "status": "error",
+            "valid": False,
+            "reason": "api_unavailable",
+            "message": "HenrikDev API is temporarily unavailable."
+        }
+
+    return {
+        "status": "ok",
+        "valid": True,
+        "reason": "accepted",
+        "message": "HenrikDev API key was accepted."
+    }
+
+
+def extract_match_season_id(match_data: dict) -> str:
+    """
+    Extracts the competitive Act id from Riot match details.
+    """
+    match_info = match_data.get("matchInfo") or match_data.get("MatchInfo") or {}
+    return (
+        match_info.get("seasonId")
+        or match_info.get("seasonID")
+        or match_info.get("SeasonID")
+        or ""
+    )
+
+
+def fallback_season_label(season_id: str) -> str:
+    """
+    Builds a short label when the remote seasons catalog is unavailable.
+    """
+    return f"ACT {season_id[:8].upper()}" if season_id else "UNKNOWN ACT"
+
+
+def parse_riot_datetime(value: str) -> datetime | None:
+    """
+    Parses Riot and app ISO timestamps into timezone-aware datetimes.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def season_id_for_match_date(match_date: str, season_catalog: dict) -> str:
+    """
+    Infers the Act id from the match date when match details are not cached.
+    """
+    parsed_match_date = parse_riot_datetime(match_date)
+    if not parsed_match_date:
+        return ""
+
+    for season_id, season_meta in season_catalog.items():
+        start_time = parse_riot_datetime(season_meta.get("start_time", ""))
+        end_time = parse_riot_datetime(season_meta.get("end_time", ""))
+        if start_time and end_time and start_time <= parsed_match_date < end_time:
+            return season_id
+    return ""
+
+
+async def get_valorant_season_catalog() -> dict:
+    """
+    Loads Valorant Acts and their parent Episodes from the public content catalog.
+    """
+    if season_catalog_cache["loaded"]:
+        return season_catalog_cache["acts"]
+
+    acts = {}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get("https://valorant-api.com/v1/seasons")
+            response.raise_for_status()
+            seasons = response.json().get("data", [])
+
+        episodes = {item.get("uuid"): item for item in seasons if not item.get("parentUuid")}
+        for item in seasons:
+            if item.get("type") != "EAresSeasonType::Act":
+                continue
+            season_id = item.get("uuid", "")
+            episode = episodes.get(item.get("parentUuid"), {})
+            episode_label = episode.get("displayName") or ""
+            label = item.get("title") or " // ".join(
+                part for part in [episode_label, item.get("displayName")] if part
+            )
+            acts[season_id] = {
+                "id": season_id,
+                "label": label or fallback_season_label(season_id),
+                "episode_id": item.get("parentUuid") or "",
+                "episode_label": episode_label,
+                "start_time": item.get("startTime") or "",
+                "end_time": item.get("endTime") or ""
+            }
+    except Exception as exc:
+        logger.warning("Valorant seasons catalog unavailable: %s", exc)
+
+    season_catalog_cache["acts"] = acts
+    season_catalog_cache["loaded"] = True
+    return acts
 
 
 def clear_stats_cache(reason: str) -> None:
@@ -64,7 +247,7 @@ def clear_stats_cache(reason: str) -> None:
     @param reason: Human-readable reason for the cache clear.
     """
     if stats_cache:
-        print(f"DEBUG CACHE CLEAR: {reason} ({len(stats_cache)} entries)", flush=True)
+        logger.debug("Stats cache cleared: %s (%s entries)", reason, len(stats_cache))
     stats_cache.clear()
 
 
@@ -83,7 +266,7 @@ def refresh_stats_cache_context() -> None:
             f"{stats_cache_context['game_phase']}:{stats_cache_context['queue_id']}:{stats_cache_context['map_id']}"
             f" -> {current_context['game_phase']}:{current_context['queue_id']}:{current_context['map_id']}"
         )
-        print(f"DEBUG CONTEXT CHANGE: {reason}", flush=True)
+        logger.info("Riot context changed: %s", reason)
         stats_cache_context.update(current_context)
 
 AGENT_MAPPING = {
@@ -253,11 +436,14 @@ def calculate_tracker_score(
         "player_rank_idx": float(player_rank_index),
         "avg_rank_idx": float(avg_rank_index),
         "rank_delta": float(player_rank_index - avg_rank_index),
-        "log_kill_death": float(log_kill_death)
+        "log_kill_death": float(log_kill_death),
+        "rounds": float(total_rounds),
+        "team_rounds": float(team_total),
+        "enemy_rounds": float(enemy_total),
     }
 
     score = predict_trs_raw(stats)
-    return max(100, min(999, round(score)))
+    return max(100, min(1000, round(score)))
 
 
 def rank_name_from_tier(tier: int | None) -> str:
@@ -456,11 +642,13 @@ def build_post_match_summary(match_data: dict, puuid: str) -> dict | None:
     agent_id = player.get("characterId") or player.get("CharacterID") or ""
     queue_id = match_info.get("queueID") or match_info.get("queueId") or tracker_state.get("queue_id", "")
     map_id = match_info.get("mapId") or match_info.get("mapID") or tracker_state.get("map_id", "")
+    season_id = extract_match_season_id(match_data)
 
     return {
         "match_id": match_info.get("matchId") or match_info.get("matchID") or tracker_state.get("current_match_id", ""),
         "queue_id": queue_id,
         "map_id": map_id,
+        "season_id": season_id,
         "agent_id": agent_id,
         "agent": AGENT_MAPPING.get(agent_id, "Unknown Agent"),
         "won": won,
@@ -478,6 +666,206 @@ def build_post_match_summary(match_data: dict, puuid: str) -> dict | None:
     }
 
 
+def build_cached_match_tracker_context(match_data: dict, puuid: str) -> dict | None:
+    """
+    Computes the local player's TRS from cached Riot match-details data.
+
+    This intentionally mirrors the scoreboard modal calculation so career rows
+    do not drift from the exact per-game score shown in match details.
+    """
+    players = match_data.get("players", []) or match_data.get("Players", []) or []
+    match_info = match_data.get("matchInfo") or match_data.get("MatchInfo") or {}
+    teams = match_data.get("teams") or match_data.get("Teams") or []
+    round_results = match_data.get("roundResults", []) or match_data.get("RoundResults", []) or []
+    player = next((p for p in players if (p.get("subject") or p.get("Subject")) == puuid), None)
+    if not player:
+        return None
+
+    team_id = player.get("teamId") or player.get("TeamID") or player.get("teamID")
+    if not team_id:
+        return None
+
+    team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) == team_id), {})
+    enemy_team = next((t for t in teams if (t.get("teamId") or t.get("TeamID")) != team_id), {})
+    team_rounds = int(_number_or_zero(team.get("roundsWon") or team.get("RoundsWon") or team.get("numPoints")))
+    enemy_rounds = int(_number_or_zero(enemy_team.get("roundsWon") or enemy_team.get("RoundsWon") or enemy_team.get("numPoints")))
+    won = bool(team.get("won") if "won" in team else team.get("Won", team_rounds > enemy_rounds))
+
+    stats = player.get("stats") or player.get("Stats") or {}
+    kills = int(_number_or_zero(stats.get("kills") or stats.get("Kills")))
+    deaths = int(_number_or_zero(stats.get("deaths") or stats.get("Deaths")))
+    assists = int(_number_or_zero(stats.get("assists") or stats.get("Assists")))
+    raw_score = int(_number_or_zero(stats.get("score") or stats.get("Score")))
+    rounds_played = int(_number_or_zero(stats.get("roundsPlayed") or stats.get("RoundsPlayed") or team_rounds + enemy_rounds))
+    if rounds_played <= 0:
+        return None
+    acs = round(raw_score / max(rounds_played, 1))
+
+    headshots = 0
+    bodyshots = 0
+    legshots = 0
+    for round_result in round_results:
+        player_stats_list = round_result.get("playerStats") or round_result.get("PlayerStats") or []
+        for player_stats in player_stats_list:
+            if (player_stats.get("subject") or player_stats.get("Subject")) != puuid:
+                continue
+            damage_list = player_stats.get("damage") or player_stats.get("Damage") or []
+            for damage in damage_list:
+                headshots += int(_number_or_zero(damage.get("headshots") or damage.get("Headshots")))
+                bodyshots += int(_number_or_zero(damage.get("bodyshots") or damage.get("Bodyshots")))
+                legshots += int(_number_or_zero(damage.get("legshots") or damage.get("Legshots")))
+    total_shots = headshots + bodyshots + legshots
+    hs_percent = round((headshots / max(total_shots, 1)) * 100, 1) if total_shots > 0 else 0.0
+
+    player_puuids = [p.get("subject") or p.get("Subject") or "" for p in players]
+    player_teams = {
+        (p.get("subject") or p.get("Subject") or ""): (p.get("teamId") or p.get("TeamID") or p.get("teamID") or "")
+        for p in players
+    }
+    round_metric_map = build_round_player_metrics(round_results, player_puuids, player_teams)
+    metrics = round_metric_map.get(puuid, {})
+    damage_dealt = int(metrics.get("damage_dealt", 0))
+    damage_received = int(metrics.get("damage_received", 0))
+    adr = round(damage_dealt / max(rounds_played, 1), 1)
+    dda = round((damage_dealt - damage_received) / max(rounds_played, 1), 1)
+    kast = round((int(metrics.get("kast_rounds", 0)) / max(rounds_played, 1)) * 100, 1)
+
+    rank = rank_name_from_tier(player.get("competitiveTier") or player.get("CompetitiveTier") or 0) or "Unranked"
+    team_rank_players = [
+        {"rank": rank_name_from_tier(p.get("competitiveTier") or p.get("CompetitiveTier") or 0) or "Unranked"}
+        for p in players
+        if (p.get("teamId") or p.get("TeamID") or p.get("teamID")) == team_id
+    ]
+    avg_rank = average_rank_name(team_rank_players) or rank
+
+    tracker_score = calculate_tracker_score(
+        kd=round(kills / max(deaths, 1), 2),
+        hs_percent=hs_percent,
+        acs=acs,
+        rank=rank,
+        peak_rank=rank,
+        adr=adr,
+        dda=dda,
+        kast=kast,
+        kills=kills,
+        deaths=deaths,
+        assists=assists,
+        fk=int(metrics.get("first_kills", 0)),
+        fd=int(metrics.get("first_deaths", 0)),
+        mk=int(metrics.get("multi_kills", 0)),
+        rounds_played=rounds_played,
+        won=won,
+        team_rounds=team_rounds,
+        enemy_rounds=enemy_rounds,
+        avg_rank=avg_rank
+    )
+    total_rounds = team_rounds + enemy_rounds
+    return {
+        "tracker_score": tracker_score,
+        "season_id": extract_match_season_id({"matchInfo": match_info}),
+        "kast": kast,
+        "dda": dda,
+        "adr": adr,
+        "team_rounds": team_rounds,
+        "enemy_rounds": enemy_rounds,
+        "rounds_played": rounds_played,
+        "round_win_percent": round((team_rounds / total_rounds) * 100, 1) if total_rounds else None,
+    }
+
+
+def calculate_cached_match_tracker_score(match_data: dict, puuid: str) -> int | None:
+    """
+    Computes the local player's exact match TRS from cached details.
+    """
+    context = build_cached_match_tracker_context(match_data, puuid)
+    if not context:
+        return None
+    return context["tracker_score"]
+
+
+def get_cached_match_tracker_score(match_id: str, puuid: str) -> int | None:
+    """
+    Returns the exact cached match-detail TRS for a player when available.
+    """
+    if not match_id or not puuid:
+        return None
+    raw_json = db_manager.get_match_details_json(match_id)
+    if not raw_json:
+        return None
+    try:
+        return calculate_cached_match_tracker_score(json.loads(raw_json), puuid)
+    except Exception as exc:
+        logger.debug("Career TRS cache miss: match_id=%s error=%s", match_id, exc)
+        return None
+
+
+def get_cached_match_tracker_context(match_id: str, puuid: str) -> dict | None:
+    """
+    Returns cached profile-score ingredients for a match when available.
+    """
+    if not match_id or not puuid:
+        return None
+    raw_json = db_manager.get_match_details_json(match_id)
+    if not raw_json:
+        return None
+    try:
+        return build_cached_match_tracker_context(json.loads(raw_json), puuid)
+    except Exception as exc:
+        logger.debug("Career TRS context miss: match_id=%s error=%s", match_id, exc)
+        return None
+
+
+def get_cached_match_season_id(match_id: str) -> str:
+    """
+    Returns the cached Act id for a match when available.
+    """
+    if not match_id:
+        return ""
+    raw_json = db_manager.get_match_details_json(match_id)
+    if not raw_json:
+        return ""
+    try:
+        return extract_match_season_id(json.loads(raw_json))
+    except Exception as exc:
+        logger.debug("Career season cache miss: match_id=%s error=%s", match_id, exc)
+        return ""
+
+
+def persist_match_season_id(match_id: str, season_id: str, puuid: str = "", overwrite: bool = False) -> None:
+    """
+    Saves a resolved Act id on the career row when the match already exists.
+    """
+    if not match_id or not season_id:
+        return
+    db_manager.update_match_season_id(match_id, season_id, puuid=puuid, overwrite=overwrite)
+
+
+async def backfill_missing_match_seasons(limit: int = 500) -> int:
+    """
+    Resolves missing Act ids for saved matches using exact cache first, then match date.
+    """
+    season_catalog = await get_valorant_season_catalog()
+    updated = 0
+    for match in db_manager.get_matches_missing_season_id(limit=limit):
+        match_id = match.get("match_id", "")
+        season_id = get_cached_match_season_id(match_id)
+        overwrite = bool(season_id)
+        if not season_id:
+            season_id = season_id_for_match_date(match.get("date", ""), season_catalog)
+        if not season_id:
+            continue
+        if db_manager.update_match_season_id(
+            match_id,
+            season_id,
+            puuid=match.get("puuid", ""),
+            overwrite=overwrite
+        ):
+            updated += 1
+    if updated:
+        logger.info("Backfilled season ids for %s saved matches", updated)
+    return updated
+
+
 async def fetch_post_match_summary(client: httpx.AsyncClient, pd_url: str, match_id: str, puuid: str, headers: dict) -> dict | None:
     """
     Fetches completed match details and returns the local player's game stats.
@@ -491,12 +879,12 @@ async def fetch_post_match_summary(client: httpx.AsyncClient, pd_url: str, match
     """
     match_resp = await client.get(f"{pd_url}/match-details/v1/matches/{match_id}", headers=headers)
     if match_resp.status_code != 200:
-        print(f"DEBUG POST MATCH: {match_resp.status_code} for {match_id}", flush=True)
+        logger.debug("Post-match details unavailable: status=%s match_id=%s", match_resp.status_code, match_id)
         return None
     try:
         db_manager.save_match_details_json(match_id, match_resp.text)
     except Exception as cache_err:
-        print(f"FAILED TO CACHE RAW MATCH DETAILS: {cache_err}", flush=True)
+        logger.warning("Failed to cache raw match details: match_id=%s error=%s", match_id, cache_err)
     return build_post_match_summary(match_resp.json(), puuid)
 
 
@@ -604,7 +992,7 @@ async def fetch_rr_change(
     if player_mmr_resp.status_code == 200:
         return extract_rr_change(player_mmr_resp.json(), match_id)
 
-    print(f"DEBUG RR: local={local_resp.status_code} updates={updates_resp.status_code}", flush=True)
+    logger.debug("RR lookup failed: local=%s updates=%s", local_resp.status_code, updates_resp.status_code)
     return 0
 
 
@@ -644,7 +1032,7 @@ async def fetch_mmr_update(
     if player_mmr_resp.status_code == 200:
         return extract_mmr_update(player_mmr_resp.json(), match_id)
 
-    print(f"DEBUG MMR UPDATE: local={local_resp.status_code} updates={updates_resp.status_code}", flush=True)
+    logger.debug("MMR update lookup failed: local=%s updates=%s", local_resp.status_code, updates_resp.status_code)
     return extract_mmr_update({}, match_id)
 
 
@@ -765,7 +1153,7 @@ async def fetch_name_service_map(
         json=unresolved_puuids
     )
     if names_resp.status_code != 200:
-        print(f"DEBUG NAME SERVICE: status={names_resp.status_code}", flush=True)
+        logger.debug("Riot name-service lookup failed: status=%s", names_resp.status_code)
         return cached_names
 
     names_map = {}
@@ -810,8 +1198,8 @@ async def resolve_current_riot_player_names(puuids: list[str]) -> dict:
                 context["remote_headers"],
                 puuids
             )
-    except Exception as e:
-        print(f"DEBUG NAME SERVICE EXCEPTION: {str(e)}", flush=True)
+    except Exception:
+        logger.exception("Riot name-service lookup failed")
         return {}
 
 
@@ -1048,6 +1436,7 @@ def persist_completed_match(summary: dict, puuid: str, player_name: str) -> bool
         "date": summary.get("date") or datetime.now(timezone.utc).isoformat(),
         "gamemode": summary.get("queue_id", ""),
         "map": summary.get("map_id", ""),
+        "season_id": summary.get("season_id", ""),
         "agent": summary.get("agent", ""),
         "win_loss": "WIN" if summary.get("won") else "LOSS",
         "rr_change": summary.get("rr_change", 0),
@@ -1069,7 +1458,12 @@ def persist_completed_match(summary: dict, puuid: str, player_name: str) -> bool
     persisted_match_ids.add(persist_key)
     refresh_session_summary()
     if inserted:
-        print(f"DEBUG DB: saved match {match_id} ({match_data['win_loss']}, {match_data['rr_change']} RR)", flush=True)
+        logger.info(
+            "Saved match: match_id=%s result=%s rr_change=%s",
+            match_id,
+            match_data["win_loss"],
+            match_data["rr_change"],
+        )
     return inserted
 
 
@@ -1221,8 +1615,8 @@ async def background_scan_loop() -> None:
                             l_region = session_data.get("region", "eu1")
                             glz_region, shard = get_region_shard(l_region)
                             glz_url = f"https://glz-{glz_region}-1.{shard}.a.pvp.net"
-                    except Exception as token_err:
-                        print("FAILED TO ACQUIRE GLZ TOKENS:", str(token_err))
+                    except Exception:
+                        logger.exception("Failed to acquire Riot GLZ tokens")
                 
                 if tracker_state["game_phase"] == "PREGAME" and remote_headers:
                     try:
@@ -1250,7 +1644,7 @@ async def background_scan_loop() -> None:
                                         names_map[p_id] = f"{g_name}#{g_tag}"
                                         
                                 from api_client import HenrikDevClient
-                                api_client = HenrikDevClient(api_key=HENRIK_API_KEY)
+                                api_client = HenrikDevClient(api_key=get_henrik_api_key())
                                 
                                 all_players_data = []
                                 for p in players_list:
@@ -1312,8 +1706,8 @@ async def background_scan_loop() -> None:
                                     new_allies.append(enrich_player_assets(player_info))
                                 tracker_state["allies"] = new_allies
                                 tracker_state["enemies"] = []
-                    except Exception as e:
-                        print("PREGAME EXCEPTION:", str(e))
+                    except Exception:
+                        logger.exception("Pregame polling failed")
                         
                 elif tracker_state["game_phase"] == "CORE-GAME" and remote_headers:
                     try:
@@ -1345,7 +1739,7 @@ async def background_scan_loop() -> None:
                                         names_map[p_id] = f"{g_name}#{g_tag}"
                                         
                                 from api_client import HenrikDevClient
-                                api_client = HenrikDevClient(api_key=HENRIK_API_KEY)
+                                api_client = HenrikDevClient(api_key=get_henrik_api_key())
                                 
                                 all_players_data = []
                                 for p in players_list:
@@ -1416,8 +1810,8 @@ async def background_scan_loop() -> None:
                                         
                                 tracker_state["allies"] = new_allies
                                 tracker_state["enemies"] = new_enemies
-                    except Exception as e:
-                        print("CORE-GAME EXCEPTION:", str(e))
+                    except Exception:
+                        logger.exception("Core-game polling failed")
                 elif needs_post_match_fetch and remote_headers:
                     try:
                         pd_url = f"https://pd.{shard}.a.pvp.net"
@@ -1446,14 +1840,15 @@ async def background_scan_loop() -> None:
                             persist_completed_match(summary, puuid, tracker_state.get("player_name", "Unknown"))
                         else:
                             tracker_state["last_match_status"] = "loading"
-                    except Exception as e:
+                    except Exception:
                         tracker_state["last_match_status"] = "loading"
-                        print("POST-MATCH EXCEPTION:", str(e))
+                        logger.exception("Post-match fetch failed")
                 else:
                     tracker_state["allies"] = []
                     tracker_state["enemies"] = []
                     
         except Exception:
+            logger.exception("Background scan loop iteration failed")
             tracker_state["status"] = "offline"
             tracker_state["game_phase"] = "OFFLINE"
             tracker_state["player_name"] = "Unknown"
@@ -1471,8 +1866,16 @@ async def startup_event() -> None:
     """
     Fires on startup to initialize the background scanning task.
     """
+    settings = settings_manager.load()
+    configure_logging(debug=bool(settings.get("app", {}).get("debug")))
+    try:
+        sync_startup_settings(settings)
+    except Exception as exc:
+        logger.warning("Unable to sync Windows startup settings on startup: %s", exc)
     db_manager.init_db()
+    logger.info("Application startup complete. logs_dir=%s data_dir=%s", logs_dir(), user_data_dir())
     refresh_session_summary()
+    asyncio.create_task(backfill_missing_match_seasons())
     asyncio.create_task(background_scan_loop())
 
 
@@ -1497,6 +1900,164 @@ async def get_session_status() -> dict:
     return tracker_state
 
 
+@app.get("/api/settings")
+async def get_settings() -> dict:
+    """
+    Returns non-sensitive local application settings.
+    """
+    return settings_manager.load()
+
+
+@app.patch("/api/settings")
+async def update_settings(payload: dict) -> dict:
+    """
+    Applies a partial update to non-sensitive local application settings.
+    """
+    settings = settings_manager.update(payload)
+    if isinstance(payload, dict) and "startup" in payload:
+        try:
+            settings["startup_status"] = sync_startup_settings(settings)
+        except Exception as exc:
+            logger.warning("Unable to sync Windows startup settings: %s", exc)
+            settings["startup_status"] = {
+                "supported": os.name == "nt",
+                "error": str(exc),
+            }
+    return settings
+
+
+@app.post("/api/settings/first-launch-completed")
+async def complete_first_launch() -> dict:
+    """
+    Marks the first-launch flow as completed.
+    """
+    return settings_manager.mark_first_launch_completed()
+
+
+def open_local_folder(path) -> dict:
+    """
+    Opens a local folder in Windows Explorer.
+    """
+    target = str(path)
+    try:
+        if os.name == "nt":
+            os.startfile(target)
+        else:
+            return {
+                "status": "error",
+                "message": "Opening folders is only supported on Windows in V1."
+            }
+    except OSError as exc:
+        return {
+            "status": "error",
+            "message": f"Unable to open folder: {exc}"
+        }
+    return {
+        "status": "ok",
+        "path": target
+    }
+
+
+@app.post("/api/settings/open-data-folder")
+async def open_data_folder() -> dict:
+    """
+    Opens the local application data folder.
+    """
+    ensure_runtime_dirs()
+    return open_local_folder(user_data_dir())
+
+
+@app.post("/api/settings/open-logs-folder")
+async def open_logs_folder() -> dict:
+    """
+    Opens the local application logs folder.
+    """
+    ensure_runtime_dirs()
+    return open_local_folder(logs_dir())
+
+
+@app.post("/api/settings/reload-cache")
+async def reload_cache() -> dict:
+    """
+    Reloads in-memory assets and clears volatile player stats cache.
+    """
+    asset_manager.reload()
+    clear_stats_cache("manual settings reload")
+    settings = settings_manager.update({
+        "cache": {
+            "last_assets_reload_at": datetime.now(timezone.utc).isoformat()
+        }
+    })
+    return {
+        "status": "ok",
+        "cache_dir": str(cache_dir()),
+        "last_assets_reload_at": settings["cache"]["last_assets_reload_at"]
+    }
+
+
+@app.get("/api/config/status")
+async def get_config_status() -> dict:
+    """
+    Returns non-sensitive local configuration status.
+    """
+    secret_status = henrik_secret_manager.storage_status()
+    return {
+        "henrik_api": secret_status,
+        "settings_path": str(settings_manager.path),
+        "startup": startup_status(),
+    }
+
+
+@app.post("/api/config/henrik-key/verify")
+async def verify_henrik_key(payload: dict) -> dict:
+    """
+    Verifies a HenrikDev key without saving it.
+    """
+    return await verify_henrik_api_key(payload.get("api_key", ""))
+
+
+@app.post("/api/config/henrik-key")
+async def save_henrik_key(payload: dict) -> dict:
+    """
+    Verifies and securely saves a HenrikDev key.
+    """
+    api_key = normalize_henrik_api_key(payload.get("api_key", ""))
+    verification = await verify_henrik_api_key(api_key)
+    if not verification.get("valid"):
+        return verification
+
+    try:
+        henrik_secret_manager.set_key(api_key)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "valid": True,
+            "saved": False,
+            "reason": "storage_failed",
+            "message": f"Unable to save HenrikDev API key: {exc}"
+        }
+
+    return {
+        "status": "ok",
+        "valid": True,
+        "saved": True,
+        "henrik_api": henrik_secret_manager.storage_status(),
+    }
+
+
+@app.delete("/api/config/henrik-key")
+async def delete_henrik_key() -> dict:
+    """
+    Deletes the locally stored HenrikDev key.
+    """
+    henrik_secret_manager.delete_key()
+    return {
+        "status": "ok",
+        "deleted": True,
+        "henrik_api": henrik_secret_manager.storage_status(),
+    }
+
+
 @app.get("/api/career")
 async def get_career() -> dict:
     """
@@ -1506,31 +2067,101 @@ async def get_career() -> dict:
     """
     puuid = tracker_state.get("puuid", "")
     career = db_manager.get_career_summary(puuid)
+    season_catalog = await get_valorant_season_catalog()
     recent_matches = []
+    season_counts = {}
+    competitive_tracker_scores = []
     current_rank = ""
     for match in career["recent_matches"]:
         match["map_id"] = match.get("map", "")
         match["won"] = match.get("win_loss") == "WIN"
         match["result"] = "VICTORY" if match["won"] else "DEFEAT"
         match["scoreline"] = ""
+        mode = str(match.get("gamemode") or "").strip().lower()
+        acs = int(_number_or_zero(match.get("acs")))
+        combat_score = int(_number_or_zero(match.get("score")))
+        inferred_rounds = round(combat_score / acs) if acs > 0 and combat_score > acs else 0
+        cached_context = None
+        if mode == "competitive":
+            cached_context = get_cached_match_tracker_context(match.get("match_id", ""), puuid)
+            if cached_context:
+                match["tracker_score"] = cached_context["tracker_score"]
+                match["kast"] = cached_context["kast"]
+                match["dda"] = cached_context["dda"]
+                match["adr"] = cached_context["adr"]
+                match["team_rounds"] = cached_context["team_rounds"]
+                match["enemy_rounds"] = cached_context["enemy_rounds"]
+                match["round_win_percent"] = cached_context["round_win_percent"]
+            else:
+                rank = match.get("rank_after") or match.get("rank_before") or current_rank or "Unranked"
+                match["tracker_score"] = calculate_tracker_score(
+                    kd=float(_number_or_zero(match.get("kd"))),
+                    hs_percent=float(_number_or_zero(match.get("hs_percent"))),
+                    acs=acs,
+                    rank=rank,
+                    peak_rank=rank,
+                    kills=int(_number_or_zero(match.get("kills"))),
+                    deaths=int(_number_or_zero(match.get("deaths"))),
+                    assists=int(_number_or_zero(match.get("assists"))),
+                    rounds_played=inferred_rounds or None,
+                    won=match["won"],
+                    avg_rank=rank,
+                )
+            competitive_tracker_scores.append(match["tracker_score"])
+        stored_season_id = match.get("season_id") or ""
+        season_id = stored_season_id
+        if not season_id and cached_context:
+            season_id = cached_context.get("season_id", "")
+        if not season_id:
+            season_id = get_cached_match_season_id(match.get("match_id", ""))
+        if not season_id:
+            season_id = season_id_for_match_date(match.get("date", ""), season_catalog)
+        match["season_id"] = season_id
+        if season_id:
+            if not stored_season_id:
+                persist_match_season_id(match.get("match_id", ""), season_id, puuid=puuid, overwrite=False)
+            season_meta = season_catalog.get(season_id, {})
+            match["season_label"] = season_meta.get("label") or fallback_season_label(season_id)
+            match["episode_id"] = season_meta.get("episode_id", "")
+            match["episode_label"] = season_meta.get("episode_label", "")
+            season_counts[season_id] = season_counts.get(season_id, 0) + 1
         enrich_match_assets(match)
         if not current_rank and match.get("rank_after"):
             current_rank = match["rank_after"]
         recent_matches.append(match)
 
+    season_options = []
+    for season_id, count in season_counts.items():
+        season_meta = season_catalog.get(season_id, {})
+        season_options.append({
+            "id": season_id,
+            "label": season_meta.get("label") or fallback_season_label(season_id),
+            "episode_id": season_meta.get("episode_id", ""),
+            "episode_label": season_meta.get("episode_label", ""),
+            "start_time": season_meta.get("start_time", ""),
+            "end_time": season_meta.get("end_time", ""),
+            "count": count
+        })
+    season_options.sort(key=lambda item: item.get("start_time") or "", reverse=True)
+
     career["recent_matches"] = recent_matches
+    career["season_options"] = season_options
     career["puuid"] = puuid
     career["player_name"] = tracker_state.get("player_name", "Unknown")
     career["current_rank"] = current_rank
     rank_assets = asset_manager.rank(current_rank)
     career["current_rank_icon_url"] = rank_assets.get("large") or rank_assets.get("small", "")
-    career["tracker_score"] = calculate_tracker_score(
-        career["avg_kd"],
-        career["avg_hs_percent"],
-        career["avg_acs"],
-        current_rank or "Unranked",
-        current_rank or "Unranked"
-    ) if career["matches"] else 0
+    career["tracker_score"] = (
+        round(sum(competitive_tracker_scores) / len(competitive_tracker_scores))
+        if competitive_tracker_scores
+        else calculate_tracker_score(
+            career["avg_kd"],
+            career["avg_hs_percent"],
+            career["avg_acs"],
+            current_rank or "Unranked",
+            current_rank or "Unranked"
+        ) if career["matches"] else 0
+    )
     return career
 
 
@@ -1621,6 +2252,10 @@ async def get_match_leaderboard(match_id: str) -> dict:
         match_info = match_data.get("matchInfo") or match_data.get("MatchInfo") or {}
         map_id = match_info.get("mapId") or match_info.get("mapID") or ""
         queue_id = match_info.get("queueID") or match_info.get("queueId") or ""
+        season_id = extract_match_season_id(match_data)
+        season_catalog = await get_valorant_season_catalog()
+        season_meta = season_catalog.get(season_id, {}) if season_id else {}
+        season_label = (season_meta.get("label") or fallback_season_label(season_id)) if season_id else ""
         teams = match_data.get("teams") or match_data.get("Teams") or []
         players = match_data.get("players") or match_data.get("Players") or []
         round_results = match_data.get("roundResults") or match_data.get("RoundResults") or []
@@ -1645,6 +2280,8 @@ async def get_match_leaderboard(match_id: str) -> dict:
                 
         if not anchor_puuid and players:
             anchor_puuid = players[0].get("subject") or players[0].get("Subject") or ""
+        if season_id:
+            persist_match_season_id(match_id, season_id, overwrite=True)
             
         local_player = next((p for p in players if (p.get("subject") or p.get("Subject")) == anchor_puuid), None)
         ally_team_id = None
@@ -1814,6 +2451,10 @@ async def get_match_leaderboard(match_id: str) -> dict:
             "map_name": map_name,
             "map_banner_url": map_banner_url,
             "queue_id": queue_id,
+            "season_id": season_id,
+            "season_label": season_label,
+            "episode_id": season_meta.get("episode_id", ""),
+            "episode_label": season_meta.get("episode_label", ""),
             "duration": match_duration,
             "scoreline": scoreline,
             "result": result_text,
@@ -1992,7 +2633,7 @@ async def debug_lcu() -> dict:
             "session": session,
             "presences": presences
         }
-        with open("lcu_debug_output.json", "w", encoding="utf-8") as f:
+        with runtime_path("lcu_debug_output.json").open("w", encoding="utf-8") as f:
             json.dump(res, f, indent=2)
             
         return res

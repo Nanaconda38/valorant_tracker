@@ -1,6 +1,11 @@
 import httpx
 import hashlib
 
+from app_logging import get_logger
+
+
+logger = get_logger(__name__)
+
 RANKS_LIST = [
     "Iron 1", "Iron 2", "Iron 3",
     "Bronze 1", "Bronze 2", "Bronze 3",
@@ -184,11 +189,11 @@ class HenrikDevClient:
             try:
                 mmr_url = f"{self.base_url}/valorant/v3/by-puuid/mmr/{region}/pc/{puuid}"
                 mmr_resp = await client.get(mmr_url, headers=headers)
-                print(f"DEBUG MMR: {mmr_resp.status_code} for {puuid}", flush=True)
+                logger.debug("HenrikDev MMR response: status=%s puuid=%s", mmr_resp.status_code, puuid)
                 if mmr_resp.status_code != 200:
-                    print(f"DEBUG MMR ERROR: {mmr_resp.text[:200]}", flush=True)
+                    logger.debug("HenrikDev MMR error body: %s", mmr_resp.text[:200])
                 if mmr_resp.status_code in critical_statuses:
-                    print(f"DEBUG FALLBACK: critical MMR status {mmr_resp.status_code} for {puuid}", flush=True)
+                    logger.warning("Using fallback stats after HenrikDev MMR status=%s puuid=%s", mmr_resp.status_code, puuid)
                     return self._generate_mock_stats(puuid)
                 
                 mmr_ok = mmr_resp.status_code == 200
@@ -200,11 +205,20 @@ class HenrikDevClient:
                 if henrik_mode:
                     matches_url = f"{matches_url}?mode={henrik_mode}"
                 matches_resp = await client.get(matches_url, headers=headers)
-                print(f"DEBUG MATCHES: {matches_resp.status_code} for {puuid} with mode {henrik_mode or 'all'}", flush=True)
+                logger.debug(
+                    "HenrikDev matches response: status=%s puuid=%s mode=%s",
+                    matches_resp.status_code,
+                    puuid,
+                    henrik_mode or "all",
+                )
                 if matches_resp.status_code != 200:
-                    print(f"DEBUG MATCHES ERROR: {matches_resp.text[:200]}", flush=True)
+                    logger.debug("HenrikDev matches error body: %s", matches_resp.text[:200])
                 if matches_resp.status_code in critical_statuses:
-                    print(f"DEBUG FALLBACK: critical matches status {matches_resp.status_code} for {puuid}", flush=True)
+                    logger.warning(
+                        "Using fallback stats after HenrikDev matches status=%s puuid=%s",
+                        matches_resp.status_code,
+                        puuid,
+                    )
                     fallback_stats = self._generate_mock_stats(puuid)
                     fallback_stats["rank"] = rank
                     fallback_stats["peak_rank"] = peak_rank
@@ -212,7 +226,7 @@ class HenrikDevClient:
                 
                 matches_ok = matches_resp.status_code == 200
                 if not mmr_ok and not matches_ok:
-                    print(f"DEBUG FALLBACK: MMR and matches failed for {puuid}", flush=True)
+                    logger.warning("Using fallback stats because HenrikDev MMR and matches failed: puuid=%s", puuid)
                     return self._generate_mock_stats(puuid)
                 
                 kills = 0
@@ -260,7 +274,7 @@ class HenrikDevClient:
                             legshots += _number_or_zero(stats.get("legshots"))
 
                 if not mmr_ok and match_count == 0:
-                    print(f"DEBUG FALLBACK: no usable Henrik data for {puuid}", flush=True)
+                    logger.warning("Using fallback stats because HenrikDev returned no usable data: puuid=%s", puuid)
                     return self._generate_mock_stats(puuid)
                 
                 kd = round(kills / max(deaths, 1), 2) if match_count > 0 else 1.0
@@ -279,8 +293,8 @@ class HenrikDevClient:
                     "match_ids": match_ids
                 }
                 
-            except Exception as e:
-                print(f"DEBUG CLIENT EXCEPTION: {e!r}", flush=True)
+            except Exception:
+                logger.exception("HenrikDev client request failed")
                 fallback_stats = self._generate_mock_stats(puuid)
                 fallback_stats["rank"] = rank
                 fallback_stats["peak_rank"] = peak_rank

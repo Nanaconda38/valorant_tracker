@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
+from app_paths import resource_path
 
-MANIFEST_PATH = Path("static/assets/valorant/manifest.json")
+MANIFEST_PATH = resource_path("static", "assets", "valorant", "manifest.json")
 
 
 class AssetManager:

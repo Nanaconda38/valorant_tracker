@@ -1,6 +1,11 @@
 import os
 import base64
 
+from app_logging import get_logger
+
+
+logger = get_logger(__name__)
+
 class LockfileScanner:
     """
     Scans and reads the Riot client lockfile to retrieve connection details.
@@ -16,7 +21,7 @@ class LockfileScanner:
         """
         Scans for the lockfile and returns the credentials.
 
-        @return: A dictionary containing port, password, and protocol, or None if not found.
+        @return: A dictionary containing port, protocol, and auth headers, or None if not found.
         """
         local_app_data = os.environ.get("LOCALAPPDATA", "")
         if not local_app_data:
@@ -44,7 +49,6 @@ class LockfileScanner:
                 
                 return {
                     "port": port,
-                    "password": password,
                     "protocol": protocol,
                     "headers": {
                         "Authorization": f"Basic {base64_auth}",
@@ -52,7 +56,7 @@ class LockfileScanner:
                     }
                 }
         except Exception:
+            logger.debug("Unable to read Riot lockfile", exc_info=True)
             return None
             
         return None
-
