@@ -135,6 +135,22 @@ def configure_desktop_environment(dev_mode: bool) -> None:
     configure_logging(debug=dev_mode)
 
 
+class WindowApi:
+    """
+    Exposes desktop window control functions to the frontend.
+    """
+
+    def __init__(self) -> None:
+        self.window = None
+
+    def toggle_fullscreen(self) -> None:
+        """
+        Toggles fullscreen mode for the pywebview window.
+        """
+        if self.window:
+            self.window.toggle_fullscreen()
+
+
 def open_desktop_window(url: str, width: int, height: int, backend: BackendServer) -> None:
     """
     Opens the pywebview desktop window and blocks until it closes.
@@ -147,6 +163,8 @@ def open_desktop_window(url: str, width: int, height: int, backend: BackendServe
             "`./venv/Scripts/python.exe -m pip install -r requirements.txt`."
         ) from exc
 
+    api = WindowApi()
+
     window = webview.create_window(
         APP_TITLE,
         url,
@@ -155,7 +173,9 @@ def open_desktop_window(url: str, width: int, height: int, backend: BackendServe
         min_size=(MIN_WIDTH, MIN_HEIGHT),
         confirm_close=False,
         icon=os.path.join(project_root, "static", "assets", "icon.png"),
+        js_api=api,
     )
+    api.window = window
 
     def on_closed() -> None:
         backend.stop()

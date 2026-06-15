@@ -223,7 +223,7 @@ function getTrackerScoreBadge(score) {
 }
 
 function renderTrackerScore(score, variant = 'compact') {
-    const value = Math.max(0, Math.round(Number(score || 0)));
+    const value = Math.max(0, Math.min(1000, Math.round(Number(score || 0))));
     const scoreClass = getScoreClass(value);
     const badge = getTrackerScoreBadge(value);
     return `
@@ -2040,4 +2040,14 @@ document.addEventListener('DOMContentLoaded', () => {
         initialEnemiesAvgHtml = enemiesAvg.innerHTML;
     }
     init();
+});
+
+// Toggle fullscreen on F11 when running in pywebview desktop shell
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'F11') {
+        if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.toggle_fullscreen === 'function') {
+            event.preventDefault();
+            window.pywebview.api.toggle_fullscreen();
+        }
+    }
 });
