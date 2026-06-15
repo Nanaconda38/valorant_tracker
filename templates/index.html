@@ -37,6 +37,16 @@
                         <span class="rr-badge-value positive" id="session-rr-delta">+0 RR</span>
                     </div>
                 </div>
+                <div class="updater-widget hidden" id="updater-header-widget">
+                    <button class="update-icon-button" id="updater-trigger-button" type="button" title="An update is available! Click to download & install.">
+                        <svg class="update-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="8 17 12 21 16 17"></polyline>
+                            <line x1="12" y1="12" x2="12" y2="21"></line>
+                            <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path>
+                        </svg>
+                        <span class="update-pulse"></span>
+                    </button>
+                </div>
                 <button class="settings-button" id="settings-open-button" type="button" title="Open settings">Settings</button>
             </div>
         </header>
@@ -668,6 +678,45 @@
                         <button class="secondary-action-button" id="settings-reload-cache-button" type="button">Reload Cache</button>
                     </div>
                     <div class="config-status-message" id="settings-runtime-status" role="status"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Modal -->
+    <div id="update-modal" class="modal-overlay hidden">
+        <div class="config-panel settings-panel" style="max-width: 500px;">
+            <button class="modal-close-button" id="update-close-button" type="button">&times;</button>
+            <div class="config-header">
+                <span class="config-kicker">UPDATE AVAILABLE</span>
+                <h2 id="update-modal-title">New Version Available</h2>
+                <p>An update has been detected. We recommend updating to the latest version.</p>
+            </div>
+
+            <div class="settings-grid">
+                <section class="settings-section" style="grid-column: 1 / -1; margin-bottom: 0;">
+                    <div class="settings-section-header">
+                        <h3>Release Details</h3>
+                        <span class="settings-pill" id="update-modal-version">v0.0.0</span>
+                    </div>
+                    <div class="update-notes-container" id="update-modal-notes">
+                        Loading release notes...
+                    </div>
+                    
+                    <div class="update-download-progress-container hidden" id="update-download-progress-container" style="margin-top: 15px;">
+                        <div class="progress-bar-label" style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 6px; color: var(--text);">
+                            <span>Downloading update...</span>
+                            <span id="update-progress-percent">0%</span>
+                        </div>
+                        <div class="progress-bar-track" style="width: 100%; height: 8px; background: var(--bg-app); border-radius: 4px; overflow: hidden; border: 1px solid var(--border);">
+                            <div class="progress-bar-fill" id="update-progress-fill" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.1s ease;"></div>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions" style="margin-top: 20px;">
+                        <button class="primary-action-button" id="update-start-button" type="button">Download and Install</button>
+                        <button class="secondary-action-button" id="update-cancel-button" type="button">Later</button>
+                    </div>
                 </section>
             </div>
         </div>

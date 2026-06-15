@@ -107,3 +107,24 @@ begin
     ForceDirectories(ExpandConstant('{userappdata}\ValorantTracker\cache'));
   end;
 end;
+
+procedure CurUninstallStepChanged(UninstallStep: TUninstallStep);
+var
+  DataDir: string;
+begin
+  if UninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{userappdata}\ValorantTracker');
+    if DirExists(DataDir) then
+    begin
+      if MsgBox(
+        'Do you want to delete all saved match histories, settings, and local database files (from %APPDATA%\ValorantTracker)?', 
+        mbConfirmation, 
+        MB_YESNO or MB_DEFBUTTON2
+      ) = IDYES then
+      begin
+        DelTree(DataDir, True, True, True);
+      end;
+    end;
+  end;
+end;

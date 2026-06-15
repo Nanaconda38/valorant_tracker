@@ -232,6 +232,84 @@ h1#app-title .sub-logo {
     border-color: rgba(255, 255, 255, 0.14);
 }
 
+/* Updater Header Widget */
+.updater-widget {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.update-icon-button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    padding: 0.5rem;
+    border-radius: var(--border-radius-sm, 6px);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: background var(--transition-speed), border-color var(--transition-speed), color var(--transition-speed);
+}
+
+.update-icon-button:hover {
+    background: rgba(255, 70, 85, 0.1);
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.update-icon {
+    width: 20px;
+    height: 20px;
+    stroke: var(--accent);
+    transition: transform var(--transition-speed);
+}
+
+.update-icon-button:hover .update-icon {
+    transform: translateY(1px);
+}
+
+.update-pulse {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent);
+    border-radius: 50%;
+    border: 2px solid var(--bg-card);
+    animation: updatePulseGlow 2s infinite;
+}
+
+@keyframes updatePulseGlow {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 70, 85, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(255, 70, 85, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 70, 85, 0);
+    }
+}
+
+/* Update Modal Notes Container */
+.update-notes-container {
+    max-height: 180px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 1rem;
+    border-radius: var(--border-radius-md, 8px);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    white-space: pre-wrap;
+    margin-top: 0.5rem;
+}
+
 .primary-action-button,
 .secondary-action-button,
 .ghost-action-button,

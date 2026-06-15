@@ -2019,6 +2019,7 @@ function init() {
     
     fetchSessionStatus();
     initConfigUi();
+    checkAppUpdates();
     setInterval(fetchSessionStatus, 3000);
 }
 
@@ -2041,6 +2042,174 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     init();
 });
+
+let updateDownloadUrl = null;
+
+/**
+ * Checks for updates on GitHub via the local backend.
+ */
+async function checkAppUpdates() {
+    try {
+        const response = await fetch('/api/updater/check');
+        const data = await response.json();
+        
+        if (data.update_available && data.download_url) {
+            updateDownloadUrl = data.download_url;
+            
+            // Show the header update notification widget
+            const updaterWidget = document.getElementById('updater-header-widget');
+            if (updaterWidget) {
+                updaterWidget.classList.remove('hidden');
+                
+                // Add event listener to the update button in the header
+                const triggerBtn = document.getElementById('updater-trigger-button');
+                if (triggerBtn) {
+                    triggerBtn.addEventListener('click', () => {
+                        openUpdateModal(data);
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to check for updates:", e);
+    }
+}
+
+/**
+ * Opens the Update Modal with release notes and version info.
+ */
+function openUpdateModal(releaseInfo) {
+    const modal = document.getElementById('update-modal');
+    if (!modal) return;
+    
+    // Set version info
+    const versionLabel = document.getElementById('update-modal-version');
+    if (versionLabel) {
+        versionLabel.textContent = `v${releaseInfo.latest_version}`;
+    }
+    
+    // Set release notes
+    const notesContainer = document.getElementById('update-modal-notes');
+    if (notesContainer) {
+        notesContainer.textContent = releaseInfo.release_notes || "No release notes available.";
+    }
+    
+    // Set up button listeners
+    const startBtn = document.getElementById('update-start-button');
+    const cancelBtn = document.getElementById('update-cancel-button');
+    const closeBtn = document.getElementById('update-close-button');
+    
+    if (startBtn) {
+        // Clear previous listeners by replacing the button
+        const newStartBtn = startBtn.cloneNode(true);
+        startBtn.parentNode.replaceChild(newStartBtn, startBtn);
+        newStartBtn.addEventListener('click', () => startDownloadAndInstall(releaseInfo.download_url));
+    }
+    
+    const closeModal = () => {
+        modal.classList.add('hidden');
+    };
+    
+    if (cancelBtn) {
+        // Clear previous listeners by replacing the button
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        newCancelBtn.addEventListener('click', closeModal);
+    }
+    if (closeBtn) {
+        // Clear previous listeners by replacing the button
+        const newCloseBtn = closeBtn.cloneNode(true);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+        newCloseBtn.addEventListener('click', closeModal);
+    }
+    
+    modal.classList.remove('hidden');
+}
+
+/**
+ * Triggers the installer download and polls progress, then launches installer.
+ */
+async function startDownloadAndInstall(downloadUrl) {
+    const startBtn = document.getElementById('update-start-button');
+    const cancelBtn = document.getElementById('update-cancel-button');
+    const closeBtn = document.getElementById('update-close-button');
+    const progressContainer = document.getElementById('update-download-progress-container');
+    const progressPercent = document.getElementById('update-progress-percent');
+    const progressFill = document.getElementById('update-progress-fill');
+    
+    if (startBtn) startBtn.disabled = true;
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (closeBtn) closeBtn.style.display = 'none';
+    
+    if (progressContainer) progressContainer.classList.remove('hidden');
+    
+    try {
+        // Trigger download
+        const response = await fetch('/api/updater/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ download_url: downloadUrl })
+        });
+        const data = await response.json();
+        
+        if (data.error) {
+            alert(`Download failed to start: ${data.error}`);
+            resetUpdateModalState();
+            return;
+        }
+        
+        // Poll progress
+        const pollInterval = setInterval(async () => {
+            try {
+                const pollResp = await fetch('/api/updater/progress');
+                const status = await pollResp.json();
+                
+                if (status.progress < 0) {
+                    clearInterval(pollInterval);
+                    alert("An error occurred during download.");
+                    resetUpdateModalState();
+                    return;
+                }
+                
+                const percent = status.progress || 0;
+                if (progressPercent) progressPercent.textContent = `${percent}%`;
+                if (progressFill) progressFill.style.width = `${percent}%`;
+                
+                if (status.completed) {
+                    clearInterval(pollInterval);
+                    if (startBtn) startBtn.textContent = "Installing...";
+                    
+                    // Trigger backend installer and exit
+                    await fetch('/api/updater/install', { method: 'POST' });
+                }
+            } catch (err) {
+                console.error("Error polling update progress:", err);
+            }
+        }, 1000);
+        
+    } catch (e) {
+        alert(`Failed to execute update: ${e.message}`);
+        resetUpdateModalState();
+    }
+}
+
+/**
+ * Resets the update modal buttons if download fails.
+ */
+function resetUpdateModalState() {
+    const startBtn = document.getElementById('update-start-button');
+    const cancelBtn = document.getElementById('update-cancel-button');
+    const closeBtn = document.getElementById('update-close-button');
+    const progressContainer = document.getElementById('update-download-progress-container');
+    
+    if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = "Download and Install";
+    }
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (closeBtn) closeBtn.style.display = 'block';
+    if (progressContainer) progressContainer.classList.add('hidden');
+}
 
 // Toggle fullscreen on F11 when running in pywebview desktop shell
 document.addEventListener('keydown', (event) => {

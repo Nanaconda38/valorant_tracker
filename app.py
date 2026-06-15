@@ -36,6 +36,8 @@ asset_manager = AssetManager()
 db_manager = DatabaseManager()
 settings_manager = SettingsManager()
 henrik_secret_manager = HenrikSecretManager()
+from updater import AppUpdater
+app_updater = AppUpdater()
 
 tracker_state = {
     "status": "offline",
@@ -1898,6 +1900,49 @@ async def get_session_status() -> dict:
     @return: A JSON response containing the status payload.
     """
     return tracker_state
+
+
+@app.get("/api/updater/check")
+async def check_update() -> dict:
+    """
+    Checks GitHub for the latest version.
+    """
+    return await app_updater.check_latest_release()
+
+
+@app.post("/api/updater/download")
+async def start_download(payload: dict) -> dict:
+    """
+    Starts download of the updater installer in the background.
+    """
+    url = payload.get("download_url")
+    if not url:
+        return {"error": "Missing download_url"}
+    
+    # Start download task
+    app_updater.download_task = asyncio.create_task(app_updater.download_installer(url))
+    return {"status": "download_started"}
+
+
+@app.get("/api/updater/progress")
+async def get_progress() -> dict:
+    """
+    Returns the current download progress percentage.
+    """
+    return {
+        "progress": app_updater.download_progress,
+        "completed": app_updater.download_task is not None and app_updater.download_task.done()
+    }
+
+
+@app.post("/api/updater/install")
+async def trigger_install() -> dict:
+    """
+    Launches the installer and shuts down the app.
+    """
+    loop = asyncio.get_event_loop()
+    loop.call_later(0.5, app_updater.run_installer_and_exit)
+    return {"status": "closing_for_installation"}
 
 
 @app.get("/api/settings")
