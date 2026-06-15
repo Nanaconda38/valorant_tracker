@@ -1870,6 +1870,21 @@ async def background_scan_loop() -> None:
                                 headers,
                                 remote_headers
                             ))
+                            # Calculate tracker score for post-match summary
+                            peak_rank = tracker_state.get("peak_rank", "")
+                            if not peak_rank:
+                                peak_rank = summary.get("rank_after", "") or summary.get("rank_before", "")
+                            summary["tracker_score"] = calculate_tracker_score(
+                                kd=summary.get("kd", 0.0),
+                                hs_percent=summary.get("hs_percent", 0.0),
+                                acs=summary.get("acs", 0),
+                                rank=summary.get("rank_after", "") or summary.get("rank_before", ""),
+                                peak_rank=peak_rank,
+                                kills=summary.get("kills"),
+                                deaths=summary.get("deaths"),
+                                assists=summary.get("assists"),
+                                rounds_played=summary.get("rounds_played")
+                            )
                             enrich_match_assets(summary)
                             tracker_state["last_match"] = summary
                             tracker_state["last_match_status"] = "available"
@@ -2661,6 +2676,21 @@ async def backfill_competitive(limit: int = 20) -> dict:
 
             summary.update(extract_mmr_update({"Matches": [update]}, match_id))
             summary["date"] = iso_from_riot_millis(update.get("MatchStartTime"))
+            # Calculate tracker score for the backfilled match
+            peak_rank = tracker_state.get("peak_rank", "")
+            if not peak_rank:
+                peak_rank = summary.get("rank_after", "") or summary.get("rank_before", "")
+            summary["tracker_score"] = calculate_tracker_score(
+                kd=summary.get("kd", 0.0),
+                hs_percent=summary.get("hs_percent", 0.0),
+                acs=summary.get("acs", 0),
+                rank=summary.get("rank_after", "") or summary.get("rank_before", ""),
+                peak_rank=peak_rank,
+                kills=summary.get("kills"),
+                deaths=summary.get("deaths"),
+                assists=summary.get("assists"),
+                rounds_played=summary.get("rounds_played")
+            )
             enrich_match_assets(summary)
             inserted = persist_completed_match(summary, puuid, player_name)
             if inserted and existed_before:

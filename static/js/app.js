@@ -388,8 +388,8 @@ function renderPostMatchSummary(summary, status) {
                     <span class="stat-value">${Number(summary.hs_percent || 0).toFixed(1)}%</span>
                 </div>
                 <div class="post-match-stat">
-                    <span class="stat-label">SCORE</span>
-                    <span class="stat-value tracker-score-slot">${renderTrackerScore(summary.score || 0, 'medium')}</span>
+                    <span class="stat-label">TRS</span>
+                    <span class="stat-value tracker-score-slot">${renderTrackerScore(summary.tracker_score !== undefined && summary.tracker_score !== null ? summary.tracker_score : summary.score || 0, 'medium')}</span>
                 </div>
                 <div class="post-match-stat">
                     <span class="stat-label">RR</span>
