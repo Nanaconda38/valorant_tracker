@@ -975,7 +975,7 @@ function renderCareerMatch(match) {
     ` : '';
 
     return `
-        <div class="career-match-card" data-match-id="${escapeHtml(match.match_id)}">
+        <div class="career-match-card ${resultClass}" data-match-id="${escapeHtml(match.match_id)}">
             <div class="career-map-banner"${bannerStyle}></div>
             <div class="career-match-body">
                 <div class="career-match-main">
