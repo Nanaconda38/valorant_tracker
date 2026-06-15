@@ -497,6 +497,32 @@ def enrich_match_assets(match_info: dict) -> dict:
     return match_info
 
 
+def get_local_client_version() -> str:
+    """
+    Parses VALORANT client version from local log files if available.
+    Falls back to a default value matching a recently observed version.
+    """
+    try:
+        import os
+        log_path = os.path.expandvars(r'%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log')
+        if os.path.exists(log_path):
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                # Scan up to the first 300 lines (the version is logged very early at startup)
+                for _ in range(300):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if "CI server version:" in line:
+                        parts = line.split("CI server version:")
+                        if len(parts) > 1:
+                            val = parts[1].strip()
+                            if val:
+                                return val
+    except Exception:
+        pass
+    return "release-12.11-shipping-9-4815575"
+
+
 def get_region_shard(local_region: str) -> tuple:
     """
     Maps LCU region to GLZ region and shard.
@@ -505,7 +531,7 @@ def get_region_shard(local_region: str) -> tuple:
     @return: A tuple of (glz_region, shard).
     """
     r_lower = local_region.lower()
-    if "na" in r_lower or "latam" in r_lower or "br" in r_lower:
+    if "na" in r_lower or "latam" in r_lower or "br" in r_lower or "pbe" in r_lower:
         return "na", "na"
     elif "ap" in r_lower:
         return "ap", "ap"
@@ -1062,7 +1088,7 @@ async def get_riot_remote_context(client: httpx.AsyncClient, local_url: str, loc
     token_data = token_resp.json()
     access_token = token_data.get("accessToken")
     entitlements_token = token_data.get("token")
-    client_version = "release-12.11-shipping-9-4815575"
+    client_version = get_local_client_version()
     pres_resp = await client.get(f"{local_url}/chat/v4/presences", headers=local_headers)
     if pres_resp.status_code == 200:
         for pres in pres_resp.json().get("presences", []):
@@ -1593,7 +1619,7 @@ async def background_scan_loop() -> None:
                             access_token = token_data.get("accessToken")
                             entitlements_token = token_data.get("token")
                             
-                            client_version = "release-12.11-shipping-9-4815575"
+                            client_version = get_local_client_version()
                             pres_resp = await client.get(f"{url}/chat/v4/presences", headers=headers)
                             if pres_resp.status_code == 200:
                                 for pres in pres_resp.json().get("presences", []):
