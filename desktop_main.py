@@ -154,6 +154,7 @@ def open_desktop_window(url: str, width: int, height: int, backend: BackendServe
         height=max(height, MIN_HEIGHT),
         min_size=(MIN_WIDTH, MIN_HEIGHT),
         confirm_close=False,
+        icon=os.path.join(project_root, "static", "assets", "icon.png"),
     )
 
     def on_closed() -> None:
