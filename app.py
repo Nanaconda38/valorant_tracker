@@ -1053,6 +1053,8 @@ async def get_riot_remote_context(client: httpx.AsyncClient, local_url: str, loc
 
     session_data = session_resp.json()
     puuid = session_data.get("puuid", "")
+    if not puuid:
+        return None
     token_resp = await client.get(f"{local_url}/entitlements/v1/token", headers=local_headers)
     if token_resp.status_code != 200:
         return None
@@ -2593,7 +2595,7 @@ async def backfill_competitive(limit: int = 20) -> dict:
             if updates_resp.status_code != 200:
                 return {
                     "status": "error",
-                    "message": f"Riot MMR updates returned {updates_resp.status_code}.",
+                    "message": f"Riot MMR updates returned {updates_resp.status_code}: {updates_resp.text[:150]}.",
                     "body": updates_resp.text[:300],
                     "start_index": start_index,
                     "end_index": end_index
