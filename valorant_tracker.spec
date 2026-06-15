@@ -8,12 +8,10 @@ ROOT = Path(SPECPATH)
 datas = [
     (str(ROOT / "templates"), "templates"),
     (str(ROOT / "static"), "static"),
-    (str(ROOT / "data" / "__init__.py"), "data"),
-    (str(ROOT / "data" / "predict_trs_generated.py"), "data"),
 ]
 
 hiddenimports = [
-    "data.predict_trs_generated",
+    "tracker_score_model",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",

@@ -36,8 +36,6 @@ Valorant Local Tracker detects the local Riot client, follows live game state, e
 
 The app is in private beta. It is ready for controlled testing with friends, but not yet intended as a polished public release.
 
-Recommended beta checks are documented in [`docs/beta_validation_checklist.md`](docs/beta_validation_checklist.md).
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -136,7 +134,7 @@ Build both the executable and installer:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -BuildExe
 ```
 
-More details are available in [`docs/build_windows.md`](docs/build_windows.md) and [`installer/README.md`](installer/README.md).
+More installer details are available in [`installer/README.md`](installer/README.md).
 
 ## Validation
 
@@ -159,14 +157,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate_v1.ps1 -R
 |-- app.py                         # FastAPI app and VALORANT tracking logic
 |-- desktop_main.py                # Desktop launcher and pywebview lifecycle
 |-- database.py                    # SQLite persistence
+|-- tracker_score_model.py         # Runtime tracker score model
 |-- settings_manager.py            # Local settings
 |-- secrets_manager.py             # Local HenrikDev key storage
 |-- autostart_manager.py           # Windows startup integration
 |-- templates/                     # App HTML
 |-- static/                        # CSS, JS, and game assets
 |-- scripts/                       # Build and validation scripts
-|-- tools/                         # Calibration, capture, and asset utility scripts
-|-- docs/                          # Specifications, plans, and beta checklist
 |-- installer/                     # Inno Setup packaging
 |-- valorant_tracker.spec          # PyInstaller spec
 `-- README.md                      # GitHub project page

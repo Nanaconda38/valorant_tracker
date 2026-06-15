@@ -67,9 +67,14 @@ class BackendServer:
     reload: bool = False
 
     def __post_init__(self) -> None:
+        if self.reload:
+            app_target = "app:app"
+        else:
+            from app import app as app_target
+
         self.server = uvicorn.Server(
             uvicorn.Config(
-                "app:app",
+                app_target,
                 host=self.host,
                 port=self.port,
                 reload=self.reload,

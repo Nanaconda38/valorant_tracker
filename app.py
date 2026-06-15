@@ -17,7 +17,7 @@ from autostart_manager import startup_status, sync_startup_settings
 from database import DatabaseManager
 from secrets_manager import HenrikSecretManager, SecretStorageError
 from settings_manager import SettingsManager
-from data.predict_trs_generated import predict_trs_raw
+from tracker_score_model import predict_trs_raw
 
 ensure_runtime_dirs()
 configure_logging()
