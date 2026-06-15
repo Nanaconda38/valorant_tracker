@@ -4,6 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-local_backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![Status](https://img.shields.io/badge/status-private_beta-ff4655?style=for-the-badge)
+[![Download](https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe)
 
 A local-first Windows desktop tracker for VALORANT players.
 
@@ -25,12 +26,6 @@ Valorant Local Tracker detects the local Riot client, follows live game state, e
 - Optional startup modes:
   - launch with Windows;
   - wait for VALORANT, then launch the tracker.
-
-<p align="center">
-  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
-    <img src="https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows Setup">
-  </a>
-</p>
 
 ## Current Status
 
@@ -62,11 +57,13 @@ The HenrikDev API key is not committed to the repository and should never be dis
 
 ## User Installation
 
-The Windows installer output is:
+Click below to download the latest Windows installer:
 
-```text
-installer/output/ValorantTrackerSetup.exe
-```
+<p align="center">
+  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
+    <img src="https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows Setup">
+  </a>
+</p>
 
 The installer:
 
