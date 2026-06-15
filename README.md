@@ -4,11 +4,16 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-local_backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![Status](https://img.shields.io/badge/status-private_beta-ff4655?style=for-the-badge)
-[![Download](https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe)
 
 A local-first Windows desktop tracker for VALORANT players.
 
 Valorant Local Tracker detects the local Riot client, follows live game state, enriches player data through HenrikDev, calculates performance scores, and stores match history on the user's machine. It is designed as a lightweight desktop app that can be shared as a single Windows installer.
+
+<p align="center">
+  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
+    <img src="static/assets/download_button.png" alt="Download for Windows" width="280">
+  </a>
+</p>
 
 > This project is not endorsed by Riot Games and is not affiliated with Riot Games, VALORANT, or Tracker Network.
 
@@ -61,7 +66,7 @@ Click below to download the latest Windows installer:
 
 <p align="center">
   <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
-    <img src="https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows Setup">
+    <img src="static/assets/download_button.png" alt="Download for Windows" width="280">
   </a>
 </p>
 
