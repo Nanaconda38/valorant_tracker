@@ -2611,14 +2611,20 @@ async def backfill_competitive(limit: int = 20) -> dict:
 
         updates = []
         max_scan = min(100, max(20, limit * 5))
-        page_size = 20
+        page_size = 10
         for start_index in range(0, max_scan, page_size):
             end_index = start_index + page_size
             updates_resp = await client.get(
                 f"{pd_url}/mmr/v1/players/{puuid}/competitiveupdates?startIndex={start_index}&endIndex={end_index}",
                 headers=remote_headers
             )
-            if updates_resp.status_code != 200:
+            if updates_resp.status_code in (400, 404):
+                logger.warning(
+                    "Riot competitive updates returned %s at startIndex=%s. Stopping pagination.",
+                    updates_resp.status_code, start_index
+                )
+                break
+            elif updates_resp.status_code != 200:
                 return {
                     "status": "error",
                     "message": f"Riot MMR updates returned {updates_resp.status_code}: {updates_resp.text[:150]}.",
@@ -2630,6 +2636,8 @@ async def backfill_competitive(limit: int = 20) -> dict:
             if not page_matches:
                 break
             updates.extend(page_matches)
+            if len(page_matches) < page_size:
+                break
             competitive_seen = sum(
                 1 for update in updates
                 if isinstance(update, dict) and update.get("QueueID") == "competitive" and update.get("MatchID")
