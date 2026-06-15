@@ -1658,6 +1658,9 @@ async def background_scan_loop() -> None:
                                     cache_key = f"{p_puuid}_{tracker_state['queue_id']}"
                                     if cache_key in stats_cache:
                                         p_stats = stats_cache[cache_key]
+                                        if p_stats.get("_deferred"):
+                                            p_stats = await api_client.get_player_stats(p_puuid, tracker_state["queue_id"])
+                                            stats_cache[cache_key] = p_stats
                                     else:
                                         p_stats = await api_client.get_player_stats(p_puuid, tracker_state["queue_id"])
                                         stats_cache[cache_key] = p_stats
@@ -1754,6 +1757,9 @@ async def background_scan_loop() -> None:
                                     cache_key = f"{p_puuid}_{tracker_state['queue_id']}"
                                     if cache_key in stats_cache:
                                         p_stats = stats_cache[cache_key]
+                                        if p_stats.get("_deferred"):
+                                            p_stats = await api_client.get_player_stats(p_puuid, tracker_state["queue_id"])
+                                            stats_cache[cache_key] = p_stats
                                     else:
                                         p_stats = await api_client.get_player_stats(p_puuid, tracker_state["queue_id"])
                                         stats_cache[cache_key] = p_stats
