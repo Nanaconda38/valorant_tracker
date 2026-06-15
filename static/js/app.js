@@ -517,7 +517,7 @@ async function importCompetitiveHistory() {
         await fetchCareer();
     } catch (error) {
         if (status) {
-            status.textContent = 'Import failed';
+            status.textContent = error.message || 'Import failed';
         }
     } finally {
         if (button) {
