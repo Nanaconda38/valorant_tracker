@@ -134,6 +134,14 @@ def configure_desktop_environment(dev_mode: bool) -> None:
         os.environ.setdefault("VALORANT_TRACKER_SKIP_DOTENV", "1")
     configure_logging(debug=dev_mode)
 
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            myappid = "naelc.valoranttracker.desktop.v1"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
 
 class WindowApi:
     """
@@ -141,14 +149,14 @@ class WindowApi:
     """
 
     def __init__(self) -> None:
-        self.window = None
+        self._window = None
 
     def toggle_fullscreen(self) -> None:
         """
         Toggles fullscreen mode for the pywebview window.
         """
-        if self.window:
-            self.window.toggle_fullscreen()
+        if self._window:
+            self._window.toggle_fullscreen()
 
 
 def open_desktop_window(url: str, width: int, height: int, backend: BackendServer) -> None:
@@ -172,10 +180,9 @@ def open_desktop_window(url: str, width: int, height: int, backend: BackendServe
         height=max(height, MIN_HEIGHT),
         min_size=(MIN_WIDTH, MIN_HEIGHT),
         confirm_close=False,
-        icon=os.path.join(project_root, "static", "assets", "icon.png"),
         js_api=api,
     )
-    api.window = window
+    api._window = window
 
     def on_closed() -> None:
         backend.stop()

@@ -83,7 +83,7 @@ class AppUpdater:
         self.download_progress = 0
         headers = {"User-Agent": "ValorantTracker-Updater"}
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             try:
                 async with client.stream("GET", download_url, headers=headers) as response:
                     if response.status_code != 200:

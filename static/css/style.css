@@ -67,6 +67,10 @@ html {
     box-sizing: border-box;
 }
 
+.hidden {
+    display: none !important;
+}
+
 body {
     background-color: var(--bg-darkest);
     color: var(--text-primary);
@@ -275,8 +279,8 @@ h1#app-title .sub-logo {
 
 .update-icon-button {
     background: transparent;
-    border: 1px solid var(--border);
-    color: var(--accent);
+    border: 1px solid var(--border-color);
+    color: var(--valorant-red);
     padding: 0.5rem;
     border-radius: var(--border-radius-sm, 6px);
     cursor: pointer;
@@ -289,18 +293,19 @@ h1#app-title .sub-logo {
 
 .update-icon-button:hover {
     background: rgba(255, 70, 85, 0.1);
-    border-color: var(--accent);
+    border-color: var(--valorant-red);
     color: var(--text-primary);
 }
 
 .update-icon {
     width: 20px;
     height: 20px;
-    stroke: var(--accent);
+    stroke: var(--valorant-red);
     transition: transform var(--transition-speed);
 }
 
 .update-icon-button:hover .update-icon {
+    stroke: var(--text-primary);
     transform: translateY(1px);
 }
 
@@ -310,9 +315,9 @@ h1#app-title .sub-logo {
     right: -2px;
     width: 8px;
     height: 8px;
-    background-color: var(--accent);
+    background-color: var(--valorant-red);
     border-radius: 50%;
-    border: 2px solid var(--bg-card);
+    border: 2px solid var(--bg-darker);
     animation: updatePulseGlow 2s infinite;
 }
 

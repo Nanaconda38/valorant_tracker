@@ -10,7 +10,7 @@ A local-first Windows desktop tracker for VALORANT players.
 Valorant Local Tracker detects the local Riot client, follows live game state, enriches player data through HenrikDev, calculates performance scores, and stores match history on the user's machine. It is designed as a lightweight desktop app that can be shared as a single Windows installer.
 
 <p align="center">
-  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
+  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.1/ValorantTrackerSetup.exe">
     <img src="static/assets/download_button.png" alt="Download for Windows" width="280">
   </a>
 </p>
@@ -65,7 +65,7 @@ The HenrikDev API key is not committed to the repository and should never be dis
 Click below to download the latest Windows installer:
 
 <p align="center">
-  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
+  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.1/ValorantTrackerSetup.exe">
     <img src="static/assets/download_button.png" alt="Download for Windows" width="280">
   </a>
 </p>

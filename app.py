@@ -2171,7 +2171,7 @@ async def get_career() -> dict:
             match["episode_label"] = season_meta.get("episode_label", "")
             season_counts[season_id] = season_counts.get(season_id, 0) + 1
         enrich_match_assets(match)
-        if not current_rank and match.get("rank_after"):
+        if not current_rank and match.get("rank_after") and match.get("rank_after") != "Unranked":
             current_rank = match["rank_after"]
         recent_matches.append(match)
 
@@ -2205,8 +2205,8 @@ async def get_career() -> dict:
     career["season_options"] = season_options
     career["puuid"] = puuid
     career["player_name"] = tracker_state.get("player_name", "Unknown")
-    career["current_rank"] = current_rank
-    rank_assets = asset_manager.rank(current_rank)
+    career["current_rank"] = current_rank or "Unranked"
+    rank_assets = asset_manager.rank(current_rank or "Unranked")
     career["current_rank_icon_url"] = rank_assets.get("large") or rank_assets.get("small", "")
     career["peak_rank"] = peak_rank
     peak_assets = asset_manager.rank(peak_rank)

@@ -8,7 +8,7 @@ from typing import Any
 from app_paths import ensure_runtime_dirs, settings_path
 
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 SETTINGS_SCHEMA_VERSION = 1
 
 DEFAULT_SETTINGS = {
