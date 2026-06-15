@@ -1141,6 +1141,58 @@ h1#app-title .sub-logo {
     width: 100%;
 }
 
+/* Custom Rank & RR Career Card Split */
+.rank-rr-card {
+    justify-content: flex-start !important;
+}
+
+.rank-rr-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: auto;
+    margin-bottom: auto;
+    width: 100%;
+}
+
+.rank-rr-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.rank-rr-icon {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+}
+
+.rank-rr-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+}
+
+.rank-rr-label b {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.rr-delta-item {
+    padding-left: 2px;
+}
+
+.win-text {
+    color: #10b981 !important;
+}
+
+.loss-text {
+    color: #ef4444 !important;
+}
+
 .stat-subnote,
 .stat-percentile {
     color: var(--valorant-yellow);

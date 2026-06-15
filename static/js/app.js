@@ -806,7 +806,31 @@ async function applyCareerFilter() {
     setText('career-acs', rankedACS);
     setTrackerScore('career-score', profileScoreBreakdown.score);
     setProfileScoreBreakdown(profileScoreBreakdown);
-    setText('career-rr', `${rankedSummary.rrDelta >= 0 ? '+' : ''}${rankedSummary.rrDelta}`);
+    const rrEl = document.getElementById('career-rr');
+    if (rrEl) {
+        rrEl.textContent = `${rankedSummary.rrDelta >= 0 ? '+' : ''}${rankedSummary.rrDelta}`;
+        rrEl.className = rankedSummary.rrDelta >= 0 ? 'win-text' : 'loss-text';
+    }
+    
+    // Update Rank & RR Card details dynamically
+    const currentIconEl = document.getElementById('career-card-current-icon');
+    const currentNameEl = document.getElementById('career-card-current-name');
+    const peakIconEl = document.getElementById('career-card-peak-icon');
+    const peakNameEl = document.getElementById('career-card-peak-name');
+    
+    if (currentIconEl) {
+        currentIconEl.src = lastCareerData.current_rank_icon_url || '/static/assets/valorant/ranks/unranked-large.png';
+    }
+    if (currentNameEl) {
+        currentNameEl.textContent = lastCareerData.current_rank || 'Unranked';
+    }
+    if (peakIconEl) {
+        peakIconEl.src = lastCareerData.peak_rank_icon_url || '/static/assets/valorant/ranks/unranked-large.png';
+    }
+    if (peakNameEl) {
+        peakNameEl.textContent = lastCareerData.peak_rank || 'Unranked';
+    }
+
     if (rankedCount) {
         setStatPercentile('career-winrate', 'winrate', rankedWinRate);
         setStatPercentile('career-kd', 'kd', rankedKD);

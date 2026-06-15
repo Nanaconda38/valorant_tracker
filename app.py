@@ -2189,6 +2189,18 @@ async def get_career() -> dict:
         })
     season_options.sort(key=lambda item: item.get("start_time") or "", reverse=True)
 
+    # Calculate peak rank from recent matches
+    peak_rank = current_rank or "Unranked"
+    peak_idx = get_rank_index(peak_rank)
+    for match in recent_matches:
+        for key in ["rank_after", "rank_before"]:
+            r = match.get(key)
+            if r:
+                idx = get_rank_index(r)
+                if idx > peak_idx:
+                    peak_idx = idx
+                    peak_rank = r
+
     career["recent_matches"] = recent_matches
     career["season_options"] = season_options
     career["puuid"] = puuid
@@ -2196,6 +2208,9 @@ async def get_career() -> dict:
     career["current_rank"] = current_rank
     rank_assets = asset_manager.rank(current_rank)
     career["current_rank_icon_url"] = rank_assets.get("large") or rank_assets.get("small", "")
+    career["peak_rank"] = peak_rank
+    peak_assets = asset_manager.rank(peak_rank)
+    career["peak_rank_icon_url"] = peak_assets.get("large") or peak_assets.get("small", "")
     career["tracker_score"] = (
         round(sum(competitive_tracker_scores) / len(competitive_tracker_scores))
         if competitive_tracker_scores
