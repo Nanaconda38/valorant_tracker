@@ -27,7 +27,7 @@ Valorant Local Tracker detects the local Riot client, follows live game state, e
   - wait for VALORANT, then launch the tracker.
 
 <p align="center">
-  <a href="https://github.com/TON_USER/TON_REPO/releases/latest/download/ValorantTrackerSetup.exe">
+  <a href="https://github.com/Nanaconda38/valorant_tracker/releases/download/v0.1.0-beta/ValorantTrackerSetup.exe">
     <img src="https://img.shields.io/badge/Download-Windows%20Setup-ff4655?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows Setup">
   </a>
 </p>
